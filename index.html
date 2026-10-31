@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex, nofollow">
 <meta name="theme-color" content="#1f2430">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<title>ピアノ練習 - 画面鍵盤</title>
+<title>ピアノ練習</title>
 <style>
   :root {
     --bg: #1f2430;
@@ -217,12 +217,62 @@
     text-align: left;
   }
   .notice.hidden { display: none; }
+
+  /* モード切り替え（鍵盤ピアノ／音名当てクイズ） */
+  body:not(.quiz-mode) .quiz-only { display: none; }
+  body.quiz-mode .piano-only { display: none; }
+  body.quiz-mode .display,
+  body.quiz-mode .keyboard-wrap { display: none; }
+
+  /* 音名当てクイズ */
+  .quiz {
+    display: none;
+    flex: 1;
+    min-height: 0;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px 10px 12px;
+  }
+  body.quiz-mode .quiz { display: flex; }
+  #quizStaff {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+  }
+  .quiz-feedback {
+    text-align: center;
+    font-size: clamp(18px, 4.5vmin, 28px);
+    font-weight: 700;
+    min-height: 1.3em;
+  }
+  .quiz-feedback.ok { color: #5fd38a; }
+  .quiz-feedback.ng { color: #ff8a80; }
+  .quiz-score {
+    text-align: center;
+    font-size: 14px;
+    color: var(--sub);
+    min-height: 1.2em;
+    font-variant-numeric: tabular-nums;
+  }
+  .answers {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 6px;
+  }
+  .answers button {
+    min-height: clamp(56px, 11vh, 96px);
+    padding: 0;
+    font-size: clamp(18px, 5vmin, 30px);
+    font-weight: 700;
+  }
+  .answers button.correct { background: #1e8e3e; border-color: #1e8e3e; color: #fff; }
+  .answers button.wrong { background: #c5221f; border-color: #c5221f; color: #fff; }
 </style>
 </head>
 <body>
 
 <div class="overlay" id="overlay">
-  <h1>画面鍵盤ピアノ</h1>
+  <h1>ピアノ練習</h1>
   <button class="start-btn" id="startBtn">タップして始める</button>
   <div class="notice hidden" id="iosNotice">
     音が出ないときは：<br>
@@ -232,6 +282,13 @@
 </div>
 
 <div class="controls">
+  <div class="group">
+    <span class="label">モード</span>
+    <select id="modeSelect">
+      <option value="piano">鍵盤ピアノ</option>
+      <option value="nameQuiz">音名当てクイズ</option>
+    </select>
+  </div>
   <div class="group">
     <span class="label">音色</span>
     <select id="toneSelect">
@@ -245,16 +302,16 @@
     <span class="label">音量</span>
     <input type="range" id="volume" min="0" max="100" step="1">
   </div>
-  <div class="group">
+  <div class="group piano-only">
     <span class="label">オクターブ</span>
     <button id="octDown" aria-label="オクターブを下げる">◀</button>
     <span class="octave-label" id="octLabel"></span>
     <button id="octUp" aria-label="オクターブを上げる">▶</button>
   </div>
-  <div class="group">
+  <div class="group piano-only">
     <button id="sustainBtn">サスティン：オフ</button>
   </div>
-  <div class="group">
+  <div class="group piano-only">
     <span class="label">表示</span>
     <select id="displaySelect">
       <option value="names">音名</option>
@@ -263,7 +320,7 @@
       <option value="bass">ヘ音記号</option>
     </select>
   </div>
-  <div class="group">
+  <div class="group piano-only">
     <span class="label">鍵盤の音名</span>
     <select id="labelSelect">
       <option value="none">なし</option>
@@ -271,7 +328,7 @@
       <option value="cde">CDE</option>
     </select>
   </div>
-  <div class="group">
+  <div class="group piano-only">
     <span class="label">鍵盤の大きさ</span>
     <select id="sizeSelect">
       <option value="large">大</option>
@@ -279,13 +336,39 @@
       <option value="small">小</option>
     </select>
   </div>
-  <div class="group">
+  <div class="group piano-only">
     <span class="label">段数</span>
     <select id="rowsSelect">
       <option value="auto">自動</option>
       <option value="1">1段</option>
       <option value="2">2段</option>
     </select>
+  </div>
+  <div class="group quiz-only">
+    <span class="label">音部記号</span>
+    <select id="quizClefSelect">
+      <option value="treble">ト音記号</option>
+      <option value="bass">ヘ音記号</option>
+      <option value="both">両方</option>
+    </select>
+  </div>
+  <div class="group quiz-only">
+    <span class="label">出題範囲</span>
+    <select id="quizRangeSelect">
+      <option value="staff">加線なし</option>
+      <option value="ledger1">加線1本まで</option>
+      <option value="ledger2">加線2本まで</option>
+    </select>
+  </div>
+  <div class="group quiz-only">
+    <span class="label">答えの表記</span>
+    <select id="quizNamesSelect">
+      <option value="doremi">ドレミ</option>
+      <option value="cde">CDE</option>
+    </select>
+  </div>
+  <div class="group quiz-only">
+    <button id="quizResetBtn">成績リセット</button>
   </div>
 </div>
 
@@ -297,6 +380,13 @@
 
 <div class="keyboard-wrap">
   <div class="keyboard" id="keyboard"></div>
+</div>
+
+<div class="quiz" id="quiz">
+  <svg id="quizStaff" preserveAspectRatio="xMidYMid meet" aria-label="出題の五線譜"></svg>
+  <div class="quiz-feedback" id="quizFeedback"></div>
+  <div class="quiz-score" id="quizScore"></div>
+  <div class="answers" id="answers"></div>
 </div>
 
 <script>
@@ -312,15 +402,20 @@ const settings = Object.assign({
   size: 'medium',
   rows: 'auto',        // auto: 縦向きで余裕があれば2段
   display: 'names',    // names / grand（大譜表）/ treble / bass
-}, loadSettings());
+  mode: 'piano',       // piano（鍵盤ピアノ）/ nameQuiz（音名当てクイズ）
+  quizClef: 'treble',  // treble / bass / both
+  quizRange: 'staff',  // staff（加線なし）/ ledger1 / ledger2
+  quizNames: 'doremi', // 答えボタンの表記：doremi / cde
+}, loadJSON(STORAGE_KEY));
 
-function loadSettings() {
-  try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; }
+function loadJSON(key) {
+  try { return JSON.parse(localStorage.getItem(key)) || {}; }
   catch (e) { return {}; }
 }
-function saveSettings() {
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(settings)); } catch (e) {}
+function saveJSON(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) {}
 }
+function saveSettings() { saveJSON(STORAGE_KEY, settings); }
 
 // ===== 音名 =====
 const NAMES_DOREMI = ['ド', 'ド♯', 'レ', 'レ♯', 'ミ', 'ファ', 'ファ♯', 'ソ', 'ソ♯', 'ラ', 'ラ♯', 'シ'];
@@ -570,7 +665,7 @@ function updateDisplay() {
   const idle = held.length === 0;
   if (!idle) lastShown = held;
   nameEl.classList.toggle('idle', idle);
-  if (staffMode) renderStaff(lastShown || [], idle);
+  if (staffMode) renderStaff(document.getElementById('staff'), lastShown || [], settings.display, { dim: idle });
   if (!lastShown) return;
   nameEl.textContent = lastShown.map((m) => nameOf(m, 'doremi')).join(' ');
   const cde = lastShown.map((m) => NAMES_CDE[m % 12] + octaveOf(m)).join(' ');
@@ -594,14 +689,15 @@ const PAPER = '#fbfaf5';
 const TREBLE_PATH = 'M0.3 3.55C-0.45 3.6-0.6 2.55 0.1 2.4C0.95 2.2 1.35 3.25 0.85 3.85C0.3 4.5-0.95 4.35-1.1 3.35C-1.25 2.3-0.15 1.65 0.45 0.75C0.95 0-0.6 -1.6 0.35 -1.6C0.85 -1.6 0.75 -0.55-0.05 0.35L0.4 5.15C0.5 5.85-0.15 6.1-0.5 5.8';
 const BASS_PATH = 'M-0.55 1C-0.6 0.1 1.25 -0.3 1.25 1.15C1.25 2.4 0.2 3.4-0.9 3.95';
 
-function renderStaff(midis, idle) {
-  const svg = document.getElementById('staff');
-  const mode = settings.display;
+// mode: grand（大譜表）/ treble / bass
+// opts.dim: 音符を薄く表示する / opts.color: 音符の色 / opts.minY・maxY: 表示範囲の最小値（音符によって広げる）
+function renderStaff(svg, midis, mode, opts = {}) {
   const staves = mode === 'grand'
     ? [{ clef: 'treble', top: 0 }, { clef: 'bass', top: 10 * S }]
     : [{ clef: mode, top: 0 }];
-  let minY = -3.5 * S;
-  let maxY = staves[staves.length - 1].top + 7.5 * S;
+  const noteInk = opts.color || INK;
+  let minY = Math.min(-3.5 * S, opts.minY ?? 0);
+  let maxY = Math.max(staves[staves.length - 1].top + 7.5 * S, opts.maxY ?? 0);
   let body = '';
 
   for (const st of staves) {
@@ -637,10 +733,10 @@ function renderStaff(midis, idle) {
       for (let d = bottomDi - 2; d >= n.di; d -= 2) lineDis.push(d);
       for (let d = bottomDi + 10; d <= n.di; d += 2) lineDis.push(d);
       for (const d of lineDis) {
-        notesSvg += `<line x1="${n.x - 1.2 * S}" x2="${n.x + 1.2 * S}" y1="${yOf(d)}" y2="${yOf(d)}" stroke="${INK}" stroke-width="1"/>`;
+        notesSvg += `<line x1="${n.x - 1.2 * S}" x2="${n.x + 1.2 * S}" y1="${yOf(d)}" y2="${yOf(d)}" stroke="${noteInk}" stroke-width="1"/>`;
       }
       // 全音符
-      notesSvg += `<ellipse cx="${n.x}" cy="${n.y}" rx="${0.78 * S}" ry="${0.52 * S}" fill="${INK}"/>`;
+      notesSvg += `<ellipse cx="${n.x}" cy="${n.y}" rx="${0.78 * S}" ry="${0.52 * S}" fill="${noteInk}"/>`;
       notesSvg += `<ellipse cx="${n.x}" cy="${n.y}" rx="${0.4 * S}" ry="${0.24 * S}" fill="${PAPER}" transform="rotate(55 ${n.x} ${n.y})"/>`;
       minY = Math.min(minY, n.y - 2 * S);
       maxY = Math.max(maxY, n.y + 2 * S);
@@ -653,7 +749,7 @@ function renderStaff(midis, idle) {
       placed.push({ col, di: n.di });
       notesSvg += sharpSvg(NOTE_X - 2 * S - col * 1.3 * S, n.y);
     }
-    body += `<g opacity="${idle ? 0.35 : 1}">${notesSvg}</g>`;
+    body += `<g opacity="${opts.dim ? 0.35 : 1}">${notesSvg}</g>`;
   }
 
   const pad = 0.5 * S;
@@ -837,6 +933,7 @@ const keyNotes = new Map();   // code -> midi
 document.addEventListener('keydown', (e) => {
   if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT') return;
+  if (settings.mode === 'nameQuiz') { quizKeydown(e); return; }
   if (e.code === 'Space') { e.preventDefault(); setSustain(true); return; }
   if (e.code === 'KeyZ') { shiftOctave(-1); return; }
   if (e.code === 'KeyX') { shiftOctave(1); return; }
@@ -916,6 +1013,173 @@ document.getElementById('octDown').addEventListener('click', () => shiftOctave(-
 document.getElementById('octUp').addEventListener('click', () => shiftOctave(1));
 document.getElementById('sustainBtn').addEventListener('click', () => setSustain(!sustain));
 
+// ===== モード切り替え =====
+const modeSelect = document.getElementById('modeSelect');
+modeSelect.value = settings.mode;
+modeSelect.addEventListener('change', () => {
+  settings.mode = modeSelect.value;
+  saveSettings();
+  applyMode();
+  modeSelect.blur();
+});
+
+function applyMode() {
+  const quizMode = settings.mode === 'nameQuiz';
+  document.body.classList.toggle('quiz-mode', quizMode);
+  setSustain(false);
+  if (quizMode) { releaseAll(); startQuiz(); }
+  else { stopQuiz(); renderKeyboard(); }
+}
+
+// ===== 音名当てクイズ =====
+// 五線譜に出た音符（♯なしの音）の音名を、ボタンで答える
+const RECORD_KEY = 'piano-practice:quiz-records';   // 最高連続正解数（音部記号・出題範囲ごと）
+const records = loadJSON(RECORD_KEY);
+const NATURAL_PC = [0, 2, 4, 5, 7, 9, 11];
+const ANSWER_NAMES = {
+  doremi: ['ド', 'レ', 'ミ', 'ファ', 'ソ', 'ラ', 'シ'],
+  cde: ['C', 'D', 'E', 'F', 'G', 'A', 'B'],
+};
+// 五線の外にはみ出す音の数（加線なし＝第1線のすぐ下〜第5線のすぐ上）
+const QUIZ_EXT = { staff: 1, ledger1: 3, ledger2: 5 };
+const OK_COLOR = '#1e8e3e';
+const NG_COLOR = '#c5221f';
+// PCキーボードで答える：C〜Bのキー、または1〜7
+const QUIZ_KEYS = {
+  KeyC: 0, KeyD: 1, KeyE: 2, KeyF: 3, KeyG: 4, KeyA: 5, KeyB: 6,
+  Digit1: 0, Digit2: 1, Digit3: 2, Digit4: 3, Digit5: 4, Digit6: 5, Digit7: 6,
+};
+const diToMidi = (di) => 12 * (Math.floor(di / 7) + 1) + NATURAL_PC[di % 7];
+
+const quizStaffEl = document.getElementById('quizStaff');
+const answersEl = document.getElementById('answers');
+const quiz = {
+  clef: null, di: null, midi: null, answered: false,
+  correct: 0, total: 0, streak: 0,
+  timer: null, voiceTimer: null,
+};
+
+function startQuiz() {
+  stopQuiz();
+  quiz.correct = quiz.total = quiz.streak = 0;
+  quiz.clef = quiz.di = null;
+  renderAnswerButtons();
+  nextQuestion();
+}
+
+function stopQuiz() {
+  clearTimeout(quiz.timer);
+  clearTimeout(quiz.voiceTimer);
+}
+
+function renderAnswerButtons() {
+  answersEl.innerHTML = '';
+  ANSWER_NAMES[settings.quizNames].forEach((name, step) => {
+    const btn = document.createElement('button');
+    btn.textContent = name;
+    btn.dataset.step = step;
+    answersEl.appendChild(btn);
+  });
+}
+
+function nextQuestion() {
+  clearTimeout(quiz.timer);
+  const clef = settings.quizClef === 'both'
+    ? (Math.random() < 0.5 ? 'treble' : 'bass')
+    : settings.quizClef;
+  const ext = QUIZ_EXT[settings.quizRange];
+  const bottomDi = CLEFS[clef].bottomDi;
+  const low = bottomDi - ext;
+  const high = bottomDi + 8 + ext;
+  let di;
+  // 同じ問題が続かないようにする
+  do { di = low + Math.floor(Math.random() * (high - low + 1)); }
+  while (clef === quiz.clef && di === quiz.di);
+  Object.assign(quiz, { clef, di, midi: diToMidi(di), answered: false });
+  answersEl.querySelectorAll('button').forEach((b) => b.classList.remove('correct', 'wrong'));
+  setFeedback('この音は何？', '');
+  drawQuizStaff(INK);
+  updateScore();
+}
+
+function drawQuizStaff(color) {
+  // 出題範囲のいちばん高い音・低い音に合わせて表示範囲を固定する（問題ごとに五線の大きさが変わらないように）
+  const ext = QUIZ_EXT[settings.quizRange];
+  renderStaff(quizStaffEl, [quiz.midi], quiz.clef, {
+    color,
+    minY: -ext * S / 2 - 2 * S,
+    maxY: 4 * S + ext * S / 2 + 2 * S,
+  });
+}
+
+function answerQuiz(step) {
+  if (quiz.answered) return;
+  quiz.answered = true;
+  const right = quiz.di % 7;
+  const ok = step === right;
+  quiz.total++;
+  if (ok) { quiz.correct++; quiz.streak++; } else quiz.streak = 0;
+  const key = settings.quizClef + '-' + settings.quizRange;
+  if (quiz.streak > (records[key] || 0)) {
+    records[key] = quiz.streak;
+    saveJSON(RECORD_KEY, records);
+  }
+  const buttons = answersEl.querySelectorAll('button');
+  buttons[right].classList.add('correct');
+  if (!ok) buttons[step].classList.add('wrong');
+  const name = NAMES_DOREMI[quiz.midi % 12] + '（' + NAMES_CDE[quiz.midi % 12] + octaveOf(quiz.midi) + '）';
+  setFeedback(ok ? '正解！ ' + name : '正解は ' + name, ok ? 'ok' : 'ng');
+  drawQuizStaff(ok ? OK_COLOR : NG_COLOR);
+  updateScore();
+  playQuizNote(quiz.midi);
+  // まちがえたときは正解を確かめられるよう長めに表示してから次へ
+  quiz.timer = setTimeout(nextQuestion, ok ? 800 : 2000);
+}
+
+function playQuizNote(midi) {
+  clearTimeout(quiz.voiceTimer);
+  if (ctx) for (const m of [...voices.keys()]) stopVoice(m, 0.03);
+  startVoice(midi);
+  quiz.voiceTimer = setTimeout(() => stopVoice(midi), 900);
+}
+
+function setFeedback(text, cls) {
+  const el = document.getElementById('quizFeedback');
+  el.textContent = text;
+  el.className = 'quiz-feedback' + (cls ? ' ' + cls : '');
+}
+
+function updateScore() {
+  const best = records[settings.quizClef + '-' + settings.quizRange] || 0;
+  let text = '正解 ' + quiz.correct + ' / ' + quiz.total + '問';
+  if (quiz.total > 0) text += '（' + Math.round(quiz.correct / quiz.total * 100) + '%）';
+  text += '　連続 ' + quiz.streak + '　最高 ' + best;
+  document.getElementById('quizScore').textContent = text;
+}
+
+function quizKeydown(e) {
+  if (!(e.code in QUIZ_KEYS)) return;
+  hideOverlay();
+  answerQuiz(QUIZ_KEYS[e.code]);
+}
+
+answersEl.addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  if (btn) answerQuiz(Number(btn.dataset.step));
+});
+
+for (const [id, prop] of [['quizClefSelect', 'quizClef'], ['quizRangeSelect', 'quizRange'], ['quizNamesSelect', 'quizNames']]) {
+  const sel = document.getElementById(id);
+  sel.value = settings[prop];
+  sel.addEventListener('change', () => {
+    settings[prop] = sel.value;
+    saveSettings();
+    startQuiz();
+    sel.blur();
+  });
+}
+document.getElementById('quizResetBtn').addEventListener('click', startQuiz);
+
 // ===== 開始画面 =====
 const overlay = document.getElementById('overlay');
 const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
@@ -952,13 +1216,14 @@ let resizeTimer = null;
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(() => {
+    if (settings.mode === 'nameQuiz') return;   // クイズ中は鍵盤を出していない（戻ったときに作り直す）
     const oct = calcOctaves();
     if (oct !== octaves || calcRows(oct) !== rows) renderKeyboard();
     else sizeKeyboard();
   }, 150);
 });
 
-renderKeyboard();
+applyMode();
 </script>
 </body>
 </html>
