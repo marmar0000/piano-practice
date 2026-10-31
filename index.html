@@ -334,24 +334,68 @@ const nameOf = (midi, style) => (style === 'cde' ? NAMES_CDE : NAMES_DOREMI)[mid
 // ===== 音の再生（Web Audio API） =====
 let ctx = null;
 let master = null;
+let audioStarted = false;   // 開始画面をタップしたか
+let audioStale = false;     // 再開できなかったので作り直しが必要か
 
+function createAudio() {
+  // iOSで消音スイッチがオンでも鳴らせるよう試みる（対応環境のみ）
+  try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {}
+  const c = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
+  master = c.createGain();
+  const comp = c.createDynamicsCompressor();
+  comp.threshold.value = -12;
+  comp.knee.value = 10;
+  comp.ratio.value = 4;
+  comp.attack.value = 0.003;
+  comp.release.value = 0.2;
+  master.connect(comp);
+  comp.connect(c.destination);
+  c.onstatechange = () => { if (c === ctx) watchAudioState(); };
+  ctx = c;
+  audioStale = false;
+  applyVolume();
+}
+
+function resetAudio() {
+  const old = ctx;
+  ctx = null;
+  master = null;
+  voices.clear();
+  try { old.close(); } catch (e) {}
+}
+
+// タップなどの操作の中で呼ぶ。止まっていたら再開し、再開できない状態なら作り直す
 function initAudio() {
-  if (!ctx) {
-    // iOSで消音スイッチがオンでも鳴らせるよう試みる（対応環境のみ）
-    try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {}
-    ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
-    master = ctx.createGain();
-    const comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -12;
-    comp.knee.value = 10;
-    comp.ratio.value = 4;
-    comp.attack.value = 0.003;
-    comp.release.value = 0.2;
-    master.connect(comp);
-    comp.connect(ctx.destination);
-    applyVolume();
-  }
-  if (ctx.state !== 'running') ctx.resume();
+  // iOSではアプリ切り替えなどで「中断（interrupted）」になり、resume() では戻らないことがある
+  if (ctx && (audioStale || ctx.state === 'closed' || ctx.state === 'interrupted')) resetAudio();
+  if (!ctx) createAudio();
+  if (ctx.state === 'running') return;
+  ctx.resume().catch(() => {});
+  playSilence();
+  const c = ctx;
+  setTimeout(() => {
+    if (c === ctx && c.state !== 'running') {
+      audioStale = true;
+      showOverlay(true);
+    }
+  }, 600);
+}
+
+// iOSで音の出力を確実に始めるため、無音を一瞬再生する
+function playSilence() {
+  const src = ctx.createBufferSource();
+  src.buffer = ctx.createBuffer(1, 1, ctx.sampleRate);
+  src.connect(ctx.destination);
+  src.start();
+}
+
+// 使っている途中で音が止まったら、再開用の画面を出す
+function watchAudioState() {
+  if (!audioStarted || document.hidden || ctx.state === 'running') return;
+  const c = ctx;
+  setTimeout(() => {
+    if (c === ctx && c.state !== 'running' && !document.hidden) showOverlay(true);
+  }, 400);
 }
 
 function applyVolume() {
@@ -879,16 +923,29 @@ const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
 if (isIOS) document.getElementById('iosNotice').classList.remove('hidden');
 
 function hideOverlay() {
+  audioStarted = true;
   initAudio();
   overlay.classList.add('hidden');
 }
-overlay.addEventListener('pointerdown', (e) => { e.preventDefault(); hideOverlay(); });
+function showOverlay(resume) {
+  document.getElementById('startBtn').textContent = resume ? 'タップして音を再開' : 'タップして始める';
+  overlay.classList.remove('hidden');
+}
+// iOSでは「指を離した（タップが完了した）」操作でないと音を開始できないことがあるので click で受ける
+overlay.addEventListener('click', hideOverlay);
 
-// iOSではアプリ切り替えで音が止まることがあるので、タップのたびに再開を試みる
-document.addEventListener('pointerdown', () => { if (ctx && ctx.state !== 'running') ctx.resume(); }, true);
+// 音が止まっていたら、操作のたびに再開を試みる
+for (const type of ['pointerup', 'touchend', 'click', 'keydown']) {
+  document.addEventListener(type, () => {
+    if (audioStarted && (!ctx || ctx.state !== 'running')) initAudio();
+  }, true);
+}
 
-// 画面を離れたら鳴っている音を止める
-document.addEventListener('visibilitychange', () => { if (document.hidden) { setSustain(false); releaseAll(); } });
+// 画面を離れたら鳴っている音を止める。戻ってきたとき音が止まっていたら再開用の画面を出す
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { setSustain(false); releaseAll(); return; }
+  if (audioStarted && ctx && ctx.state !== 'running') showOverlay(true);
+});
 
 // 画面の向き・サイズが変わったら鍵盤の数を計算し直す
 let resizeTimer = null;

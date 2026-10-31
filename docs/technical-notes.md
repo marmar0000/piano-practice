@@ -8,7 +8,10 @@
   - 対策1：画面で案内を出す
   - 対策2：`navigator.audioSession.type = 'playback'` を設定する（対応している環境のみ効く）
 - 自動再生制限：AudioContextはユーザーの操作（タップ）の中で開始・再開する必要がある
-- iOSではアプリを切り替えるとAudioContextが止まることがある → 次のタップで `resume()` する
+  - iOSでは「指が触れた瞬間（pointerdown・touchstart）」ではなく「指を離した・タップ完了（pointerup・touchend・click）」でないと開始できないことがある → 開始画面は click で受ける
+- iOSではアプリを切り替えるとAudioContextが止まる（suspended / interrupted）ことがあり、`resume()` しても戻らない場合がある
+  - 対策（index.html で実装済み）：操作のたびに再開を試み、0.6秒たっても戻らなければ「タップして音を再開」画面を出し、AudioContextを作り直す。画面に戻ってきたときに止まっていても同じ画面を出す
+  - 開始時に無音を一瞬再生して、音の出力を確実に始める
 - マイク（getUserMedia）はHTTPSでないと使えない（GitHub PagesはHTTPSなのでOK）
 
 ## 画面鍵盤ピアノの実装メモ（index.html）
