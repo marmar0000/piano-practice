@@ -428,7 +428,8 @@ const nameOf = (midi, style) => (style === 'cde' ? NAMES_CDE : NAMES_DOREMI)[mid
 
 // ===== 音の再生（Web Audio API） =====
 let ctx = null;
-let master = null;
+let master = null;          // 各音をまとめる入口
+let volumeNode = null;      // 音量スライダーの値をかける場所
 let audioStarted = false;   // 開始画面をタップしたか
 let audioStale = false;     // 再開できなかったので作り直しが必要か
 
@@ -436,25 +437,46 @@ function createAudio() {
   // iOSで消音スイッチがオンでも鳴らせるよう試みる（対応環境のみ）
   try { if (navigator.audioSession) navigator.audioSession.type = 'playback'; } catch (e) {}
   const c = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: 'interactive' });
-  master = c.createGain();
-  const comp = c.createDynamicsCompressor();
-  comp.threshold.value = -12;
-  comp.knee.value = 10;
-  comp.ratio.value = 4;
-  comp.attack.value = 0.003;
-  comp.release.value = 0.2;
-  master.connect(comp);
-  comp.connect(c.destination);
+  ({ input: master, volume: volumeNode } = buildOutput(c));
   c.onstatechange = () => { if (c === ctx) watchAudioState(); };
   ctx = c;
   audioStale = false;
   applyVolume();
 }
 
+// 出力の流れ：各音 → コンプレッサー（和音で大きくなりすぎないように）→ 音量 → ソフトクリップ（音割れ防止）→ スピーカー
+// 音量をコンプレッサーの後ろでかけるので、スライダーを上げた分だけそのまま大きくなる
+function buildOutput(c) {
+  const input = c.createGain();
+  const comp = c.createDynamicsCompressor();
+  comp.threshold.value = -20;
+  comp.knee.value = 10;
+  comp.ratio.value = 8;
+  comp.attack.value = 0.002;
+  comp.release.value = 0.25;
+  const volume = c.createGain();
+  // 0.8を超えたところから、なめらかに1.0へ近づける（急に音が割れないように）
+  const pre = c.createGain();
+  pre.gain.value = 0.5;
+  const shaper = c.createWaveShaper();
+  const n = 4096;
+  const curve = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const x = (i / (n - 1) * 2 - 1) * 2;
+    const a = Math.abs(x);
+    curve[i] = a < 0.8 ? x : Math.sign(x) * (0.8 + 0.2 * Math.tanh((a - 0.8) / 0.2));
+  }
+  shaper.curve = curve;
+  shaper.oversample = '2x';
+  input.connect(comp).connect(volume).connect(pre).connect(shaper).connect(c.destination);
+  return { input, volume };
+}
+
 function resetAudio() {
   const old = ctx;
   ctx = null;
   master = null;
+  volumeNode = null;
   voices.clear();
   try { old.close(); } catch (e) {}
 }
@@ -494,9 +516,9 @@ function watchAudioState() {
 }
 
 function applyVolume() {
-  if (!master) return;
+  if (!volumeNode) return;
   const v = settings.volume / 100;
-  master.gain.setTargetAtTime(v * v * 0.9, ctx.currentTime, 0.02);
+  volumeNode.gain.setTargetAtTime(1.6 * Math.pow(v, 1.5), ctx.currentTime, 0.02);
 }
 
 function osc(type, freq, t) {
@@ -548,7 +570,7 @@ const TONES = {
     const bars = [[0.5, 0.25], [1, 0.5], [2, 0.35], [3, 0.2], [4, 0.15], [6, 0.08], [8, 0.06]];
     const sum = ctx.createGain();
     sum.gain.setValueAtTime(0, t);
-    sum.gain.linearRampToValueAtTime(0.16, t + 0.012);
+    sum.gain.linearRampToValueAtTime(0.3, t + 0.012);
     const oscs = [];
     for (const [n, amp] of bars) {
       if (freq * n > 12000) continue;
@@ -573,8 +595,8 @@ const TONES = {
     filter.frequency.setTargetAtTime(Math.min(16000, freq * 3), t, 0.2);
     const amp = ctx.createGain();
     amp.gain.setValueAtTime(0, t);
-    amp.gain.linearRampToValueAtTime(0.12, t + 0.01);
-    amp.gain.setTargetAtTime(0.08, t + 0.01, 0.3);
+    amp.gain.linearRampToValueAtTime(0.22, t + 0.01);
+    amp.gain.setTargetAtTime(0.145, t + 0.01, 0.3);
     o1.connect(filter);
     o2.connect(filter);
     filter.connect(amp).connect(out);
