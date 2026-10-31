@@ -218,22 +218,18 @@
   }
   .notice.hidden { display: none; }
 
-  /* モード切り替え（鍵盤ピアノ／音名当てクイズ） */
-  body:not(.quiz-mode) .quiz-only { display: none; }
-  body.quiz-mode .piano-only { display: none; }
-  body.quiz-mode .display,
-  body.quiz-mode .keyboard-wrap { display: none; }
+  /* モード切り替え：data-modes に書いたモードのときだけ表示する */
+  [hidden] { display: none !important; }
 
   /* 音名当てクイズ */
   .quiz {
-    display: none;
+    display: flex;
     flex: 1;
     min-height: 0;
     flex-direction: column;
     gap: 6px;
     padding: 8px 10px 12px;
   }
-  body.quiz-mode .quiz { display: flex; }
   #quizStaff {
     flex: 1;
     min-height: 0;
@@ -267,6 +263,29 @@
   }
   .answers button.correct { background: #1e8e3e; border-color: #1e8e3e; color: #fff; }
   .answers button.wrong { background: #c5221f; border-color: #c5221f; color: #fff; }
+
+  /* 鍵盤の位置当てクイズ */
+  .keyquiz-panel {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 2px;
+  }
+  #keyQuizPrompt {
+    font-size: clamp(32px, 11vmin, 96px);
+    font-weight: 700;
+    line-height: 1.1;
+  }
+  .quiz-feedback.guide { color: var(--sub); font-weight: 400; font-size: 15px; }
+  @media (max-height: 500px) {
+    #keyQuizPrompt { font-size: 32px; }
+    .keyquiz-panel .quiz-feedback { font-size: 17px; }
+  }
+  .key.white.correct { background: #8fe0a8; }
+  .key.black.correct { background: #1e8e3e; }
+  .key.white.wrong { background: #ffa69e; }
+  .key.black.wrong { background: #c5221f; }
 </style>
 </head>
 <body>
@@ -287,6 +306,7 @@
     <select id="modeSelect">
       <option value="piano">鍵盤ピアノ</option>
       <option value="nameQuiz">音名当てクイズ</option>
+      <option value="keyQuiz">鍵盤の位置当てクイズ</option>
     </select>
   </div>
   <div class="group">
@@ -302,16 +322,16 @@
     <span class="label">音量</span>
     <input type="range" id="volume" min="0" max="100" step="1">
   </div>
-  <div class="group piano-only">
+  <div class="group" data-modes="piano keyQuiz">
     <span class="label">オクターブ</span>
     <button id="octDown" aria-label="オクターブを下げる">◀</button>
     <span class="octave-label" id="octLabel"></span>
     <button id="octUp" aria-label="オクターブを上げる">▶</button>
   </div>
-  <div class="group piano-only">
+  <div class="group" data-modes="piano">
     <button id="sustainBtn">サスティン：オフ</button>
   </div>
-  <div class="group piano-only">
+  <div class="group" data-modes="piano">
     <span class="label">表示</span>
     <select id="displaySelect">
       <option value="names">音名</option>
@@ -320,7 +340,7 @@
       <option value="bass">ヘ音記号</option>
     </select>
   </div>
-  <div class="group piano-only">
+  <div class="group" data-modes="piano">
     <span class="label">鍵盤の音名</span>
     <select id="labelSelect">
       <option value="none">なし</option>
@@ -328,7 +348,7 @@
       <option value="cde">CDE</option>
     </select>
   </div>
-  <div class="group piano-only">
+  <div class="group" data-modes="piano keyQuiz">
     <span class="label">鍵盤の大きさ</span>
     <select id="sizeSelect">
       <option value="large">大</option>
@@ -336,7 +356,7 @@
       <option value="small">小</option>
     </select>
   </div>
-  <div class="group piano-only">
+  <div class="group" data-modes="piano keyQuiz">
     <span class="label">段数</span>
     <select id="rowsSelect">
       <option value="auto">自動</option>
@@ -344,7 +364,7 @@
       <option value="2">2段</option>
     </select>
   </div>
-  <div class="group quiz-only">
+  <div class="group" data-modes="nameQuiz">
     <span class="label">音部記号</span>
     <select id="quizClefSelect">
       <option value="treble">ト音記号</option>
@@ -352,7 +372,7 @@
       <option value="both">両方</option>
     </select>
   </div>
-  <div class="group quiz-only">
+  <div class="group" data-modes="nameQuiz">
     <span class="label">出題範囲</span>
     <select id="quizRangeSelect">
       <option value="staff">加線なし</option>
@@ -360,29 +380,48 @@
       <option value="ledger2">加線2本まで</option>
     </select>
   </div>
-  <div class="group quiz-only">
+  <div class="group" data-modes="keyQuiz">
+    <span class="label">出題する音</span>
+    <select id="keyQuizKeysSelect">
+      <option value="white">白鍵だけ</option>
+      <option value="all">黒鍵も</option>
+    </select>
+  </div>
+  <div class="group" data-modes="keyQuiz">
+    <span class="label">音の高さ</span>
+    <select id="keyQuizOctaveSelect">
+      <option value="any">どのオクターブでも正解</option>
+      <option value="exact">オクターブも当てる</option>
+    </select>
+  </div>
+  <div class="group" data-modes="nameQuiz keyQuiz">
     <span class="label">答えの表記</span>
     <select id="quizNamesSelect">
       <option value="doremi">ドレミ</option>
       <option value="cde">CDE</option>
     </select>
   </div>
-  <div class="group quiz-only">
+  <div class="group" data-modes="nameQuiz keyQuiz">
     <button id="quizResetBtn">成績リセット</button>
   </div>
 </div>
 
-<div class="display" id="display">
-  <div id="noteName" class="idle">♪</div>
-  <svg id="staff" preserveAspectRatio="xMidYMid meet" aria-label="五線譜"></svg>
-  <div id="noteSub">鍵盤をタップしてください</div>
+<div class="display" id="display" data-modes="piano keyQuiz">
+  <div id="noteName" class="idle" data-modes="piano">♪</div>
+  <svg id="staff" preserveAspectRatio="xMidYMid meet" aria-label="五線譜" data-modes="piano"></svg>
+  <div id="noteSub" data-modes="piano">鍵盤をタップしてください</div>
+  <div class="keyquiz-panel" data-modes="keyQuiz">
+    <div id="keyQuizPrompt"></div>
+    <div class="quiz-feedback" id="keyQuizFeedback"></div>
+    <div class="quiz-score" id="keyQuizScore"></div>
+  </div>
 </div>
 
-<div class="keyboard-wrap">
+<div class="keyboard-wrap" data-modes="piano keyQuiz">
   <div class="keyboard" id="keyboard"></div>
 </div>
 
-<div class="quiz" id="quiz">
+<div class="quiz" id="quiz" data-modes="nameQuiz">
   <svg id="quizStaff" preserveAspectRatio="xMidYMid meet" aria-label="出題の五線譜"></svg>
   <div class="quiz-feedback" id="quizFeedback"></div>
   <div class="quiz-score" id="quizScore"></div>
@@ -402,10 +441,12 @@ const settings = Object.assign({
   size: 'medium',
   rows: 'auto',        // auto: 縦向きで余裕があれば2段
   display: 'names',    // names / grand（大譜表）/ treble / bass
-  mode: 'piano',       // piano（鍵盤ピアノ）/ nameQuiz（音名当てクイズ）
+  mode: 'piano',       // piano（鍵盤ピアノ）/ nameQuiz（音名当てクイズ）/ keyQuiz（鍵盤の位置当てクイズ）
   quizClef: 'treble',  // treble / bass / both
   quizRange: 'staff',  // staff（加線なし）/ ledger1 / ledger2
-  quizNames: 'doremi', // 答えボタンの表記：doremi / cde
+  quizNames: 'doremi', // クイズの音名の表記：doremi / cde
+  keyQuizKeys: 'white',  // 位置当てで出題する音：white（白鍵だけ）/ all（黒鍵も）
+  keyQuizOctave: 'any',  // any（どのオクターブでも正解）/ exact（オクターブも当てる）
 }, loadJSON(STORAGE_KEY));
 
 function loadJSON(key) {
@@ -678,6 +719,7 @@ function releaseAll() {
 // ===== 表示エリア（音名・五線譜） =====
 let lastShown = null;
 function updateDisplay() {
+  if (settings.mode !== 'piano') return;
   const displayEl = document.getElementById('display');
   const nameEl = document.getElementById('noteName');
   const subEl = document.getElementById('noteSub');
@@ -796,9 +838,12 @@ const KEY_MIN_WIDTH = { large: 58, medium: 44, small: 32 };
 const KEY_RATIO = 6;          // 白鍵の高さ÷幅の上限（実物のピアノに近い比率）
 const KEY_MAX_HEIGHT = 420;
 const DISPLAY_MIN = 90;       // 音名表示エリアに最低限残す高さ
+const DISPLAY_MIN_KEYQUIZ = 105;   // 位置当てクイズ（問題・案内・成績の3行）
 let octaves = 2;
 let rows = 1;
 let startOctave = 4;
+
+const displayMin = () => (settings.mode === 'keyQuiz' ? DISPLAY_MIN_KEYQUIZ : DISPLAY_MIN);
 
 function calcOctaves() {
   const width = keyboardEl.clientWidth || window.innerWidth;
@@ -810,7 +855,7 @@ function calcRows(oct) {
   if (settings.rows !== 'auto') return Number(settings.rows);
   // 縦向きで、2段にしても鍵盤が十分な高さを保てるときだけ2段にする
   const whiteW = (keyboardEl.clientWidth || window.innerWidth) / (oct * 7 + 1);
-  const available = window.innerHeight - document.querySelector('.controls').offsetHeight - DISPLAY_MIN;
+  const available = window.innerHeight - document.querySelector('.controls').offsetHeight - displayMin();
   const portrait = window.innerHeight > window.innerWidth * 1.1;
   return portrait && available / 2 - 30 >= Math.min(whiteW * 4.5, 220) ? 2 : 1;
 }
@@ -840,6 +885,7 @@ function renderKeyboard() {
   }
   updateLabels();
   sizeKeyboard();
+  if (settings.mode === 'keyQuiz') nextKeyQuestion();   // 鍵盤の範囲が変わったので出題し直す
   document.getElementById('octLabel').textContent =
     rows === 2 ? 'C' + (startOctave - octaves) + '〜C' + (startOctave + octaves) : rangeLabel(startOctave);
 }
@@ -885,7 +931,8 @@ function updateLabels() {
   keyboardEl.querySelectorAll('.key').forEach((el) => {
     const midi = Number(el.dataset.midi);
     const label = el.querySelector('.key-label');
-    if (settings.labels === 'none') { label.textContent = ''; return; }
+    // 位置当てクイズ中は答えが分かってしまうので音名を出さない
+    if (settings.labels === 'none' || settings.mode === 'keyQuiz') { label.textContent = ''; return; }
     let text = nameOf(midi, settings.labels);
     if (midi % 12 === 0) text += octaveOf(midi);
     label.textContent = text;
@@ -897,7 +944,7 @@ function sizeKeyboard() {
   const whiteW = keyboardEl.clientWidth / (octaves * 7 + 1);
   const controlsH = document.querySelector('.controls').offsetHeight;
   const extra = rows === 2 ? 50 : 0;   // 段の見出しと間隔
-  const available = (window.innerHeight - controlsH - DISPLAY_MIN - extra) / rows;
+  const available = (window.innerHeight - controlsH - displayMin() - extra) / rows;
   const h = Math.max(100, Math.min(available, whiteW * KEY_RATIO, KEY_MAX_HEIGHT));
   keyboardEl.querySelectorAll('.kb-row').forEach((row) => { row.style.height = h + 'px'; });
 }
@@ -923,6 +970,7 @@ keyboardEl.addEventListener('pointerdown', (e) => {
   if (midi === null) return;
   pointerNotes.set(e.pointerId, midi);
   noteOn(midi);
+  if (settings.mode === 'keyQuiz') answerKeyQuiz(midi);
 });
 
 keyboardEl.addEventListener('pointermove', (e) => {
@@ -956,7 +1004,7 @@ document.addEventListener('keydown', (e) => {
   if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT') return;
   if (settings.mode === 'nameQuiz') { quizKeydown(e); return; }
-  if (e.code === 'Space') { e.preventDefault(); setSustain(true); return; }
+  if (e.code === 'Space') { e.preventDefault(); if (settings.mode === 'piano') setSustain(true); return; }
   if (e.code === 'KeyZ') { shiftOctave(-1); return; }
   if (e.code === 'KeyX') { shiftOctave(1); return; }
   if (!(e.code in KEY_MAP) || keyNotes.has(e.code)) return;
@@ -964,6 +1012,7 @@ document.addEventListener('keydown', (e) => {
   const midi = 12 * (startOctave + 1) + KEY_MAP[e.code];
   keyNotes.set(e.code, midi);
   noteOn(midi);
+  if (settings.mode === 'keyQuiz') answerKeyQuiz(midi);
 });
 
 document.addEventListener('keyup', (e) => {
@@ -1046,11 +1095,16 @@ modeSelect.addEventListener('change', () => {
 });
 
 function applyMode() {
-  const quizMode = settings.mode === 'nameQuiz';
-  document.body.classList.toggle('quiz-mode', quizMode);
+  const mode = settings.mode;
+  document.querySelectorAll('[data-modes]').forEach((el) => {
+    el.hidden = !el.dataset.modes.split(' ').includes(mode);
+  });
   setSustain(false);
-  if (quizMode) { releaseAll(); startQuiz(); }
-  else { stopQuiz(); renderKeyboard(); }
+  stopQuiz();
+  stopKeyQuiz();
+  if (mode === 'nameQuiz') { releaseAll(); startQuiz(); return; }
+  if (mode === 'keyQuiz') resetKeyQuizScore();
+  renderKeyboard();   // 位置当てクイズのときは、この中で最初の問題を出す
 }
 
 // ===== 音名当てクイズ =====
@@ -1141,11 +1195,7 @@ function answerQuiz(step) {
   const ok = step === right;
   quiz.total++;
   if (ok) { quiz.correct++; quiz.streak++; } else quiz.streak = 0;
-  const key = settings.quizClef + '-' + settings.quizRange;
-  if (quiz.streak > (records[key] || 0)) {
-    records[key] = quiz.streak;
-    saveJSON(RECORD_KEY, records);
-  }
+  updateRecord(quiz, settings.quizClef + '-' + settings.quizRange);
   const buttons = answersEl.querySelectorAll('button');
   buttons[right].classList.add('correct');
   if (!ok) buttons[step].classList.add('wrong');
@@ -1165,18 +1215,30 @@ function playQuizNote(midi) {
   quiz.voiceTimer = setTimeout(() => stopVoice(midi), 900);
 }
 
-function setFeedback(text, cls) {
-  const el = document.getElementById('quizFeedback');
+function setFeedback(text, cls, id = 'quizFeedback') {
+  const el = document.getElementById(id);
   el.textContent = text;
   el.className = 'quiz-feedback' + (cls ? ' ' + cls : '');
 }
 
 function updateScore() {
-  const best = records[settings.quizClef + '-' + settings.quizRange] || 0;
-  let text = '正解 ' + quiz.correct + ' / ' + quiz.total + '問';
-  if (quiz.total > 0) text += '（' + Math.round(quiz.correct / quiz.total * 100) + '%）';
-  text += '　連続 ' + quiz.streak + '　最高 ' + best;
-  document.getElementById('quizScore').textContent = text;
+  document.getElementById('quizScore').textContent =
+    scoreText(quiz, settings.quizClef + '-' + settings.quizRange);
+}
+
+// 正解数・正解率・連続正解・最高記録の表示
+function scoreText(state, recordKey) {
+  let text = '正解 ' + state.correct + ' / ' + state.total + '問';
+  if (state.total > 0) text += '（' + Math.round(state.correct / state.total * 100) + '%）';
+  return text + '　連続 ' + state.streak + '　最高 ' + (records[recordKey] || 0);
+}
+
+// 連続正解の最高記録を更新する
+function updateRecord(state, recordKey) {
+  if (state.streak > (records[recordKey] || 0)) {
+    records[recordKey] = state.streak;
+    saveJSON(RECORD_KEY, records);
+  }
 }
 
 function quizKeydown(e) {
@@ -1196,11 +1258,108 @@ for (const [id, prop] of [['quizClefSelect', 'quizClef'], ['quizRangeSelect', 'q
   sel.addEventListener('change', () => {
     settings[prop] = sel.value;
     saveSettings();
-    startQuiz();
+    restartCurrentQuiz();
     sel.blur();
   });
 }
-document.getElementById('quizResetBtn').addEventListener('click', startQuiz);
+document.getElementById('quizResetBtn').addEventListener('click', restartCurrentQuiz);
+
+function restartCurrentQuiz() {
+  if (settings.mode === 'nameQuiz') startQuiz();
+  else if (settings.mode === 'keyQuiz') { resetKeyQuizScore(); nextKeyQuestion(); }
+}
+
+// ===== 鍵盤の位置当てクイズ =====
+// 出題された音名の鍵盤を、画面の鍵盤（またはPCのキーボード）で押して答える
+const keyQuiz = {
+  midi: null, answered: false,
+  correct: 0, total: 0, streak: 0,
+  timer: null,
+};
+
+const keyQuizRecordKey = () => 'key-' + settings.keyQuizKeys + '-' + settings.keyQuizOctave;
+const quizNoteName = (midi) => (settings.quizNames === 'cde' ? NAMES_CDE : NAMES_DOREMI)[midi % 12];
+
+function resetKeyQuizScore() {
+  stopKeyQuiz();
+  keyQuiz.correct = keyQuiz.total = keyQuiz.streak = 0;
+  keyQuiz.midi = null;
+}
+
+function stopKeyQuiz() {
+  clearTimeout(keyQuiz.timer);
+}
+
+// いま画面に出ている鍵盤の音（重複なし）
+function visibleMidis() {
+  const set = new Set([...keyboardEl.querySelectorAll('.key')].map((el) => Number(el.dataset.midi)));
+  return [...set];
+}
+
+function nextKeyQuestion() {
+  clearTimeout(keyQuiz.timer);
+  const exact = settings.keyQuizOctave === 'exact';
+  const allowed = (m) => settings.keyQuizKeys === 'all' || !isBlack(m);
+  // オクターブも当てるときは画面にある鍵盤から、そうでなければ12音（または白鍵7音）から選ぶ
+  let candidates = exact
+    ? visibleMidis().filter(allowed)
+    : [60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71].filter(allowed);
+  const prev = keyQuiz.midi;
+  const same = (m) => prev !== null && (exact ? m === prev : m % 12 === prev % 12);
+  if (candidates.length > 1) candidates = candidates.filter((m) => !same(m));   // 同じ問題が続かないように
+  keyQuiz.midi = candidates[Math.floor(Math.random() * candidates.length)];
+  keyQuiz.answered = false;
+  clearKeyMarks();
+  updateLabels();
+  const name = quizNoteName(keyQuiz.midi);
+  document.getElementById('keyQuizPrompt').textContent = exact ? name + octaveOf(keyQuiz.midi) : name;
+  setFeedback('この音の鍵盤をタップ', 'guide', 'keyQuizFeedback');
+  updateKeyQuizScore();
+}
+
+function answerKeyQuiz(midi) {
+  if (keyQuiz.answered || keyQuiz.midi === null) return;
+  keyQuiz.answered = true;
+  const exact = settings.keyQuizOctave === 'exact';
+  const isRight = (m) => (exact ? m === keyQuiz.midi : m % 12 === keyQuiz.midi % 12);
+  const ok = isRight(midi);
+  keyQuiz.total++;
+  if (ok) { keyQuiz.correct++; keyQuiz.streak++; } else keyQuiz.streak = 0;
+  updateRecord(keyQuiz, keyQuizRecordKey());
+  // 正解の鍵盤を緑、押しまちがえた鍵盤を赤にして、正解の鍵盤に音名を出す
+  keyboardEl.querySelectorAll('.key').forEach((el) => {
+    const m = Number(el.dataset.midi);
+    if (isRight(m)) {
+      el.classList.add('correct');
+      el.querySelector('.key-label').textContent = quizNoteName(m) + (exact || m % 12 === 0 ? octaveOf(m) : '');
+    } else if (m === midi) {
+      el.classList.add('wrong');
+    }
+  });
+  setFeedback(ok ? '正解！' : 'ざんねん… 正解は緑の鍵盤', ok ? 'ok' : 'ng', 'keyQuizFeedback');
+  updateKeyQuizScore();
+  // まちがえたときは正解の場所を確かめられるよう長めに表示してから次へ
+  keyQuiz.timer = setTimeout(nextKeyQuestion, ok ? 800 : 2200);
+}
+
+function clearKeyMarks() {
+  keyboardEl.querySelectorAll('.key.correct, .key.wrong').forEach((el) => el.classList.remove('correct', 'wrong'));
+}
+
+function updateKeyQuizScore() {
+  document.getElementById('keyQuizScore').textContent = scoreText(keyQuiz, keyQuizRecordKey());
+}
+
+for (const [id, prop] of [['keyQuizKeysSelect', 'keyQuizKeys'], ['keyQuizOctaveSelect', 'keyQuizOctave']]) {
+  const sel = document.getElementById(id);
+  sel.value = settings[prop];
+  sel.addEventListener('change', () => {
+    settings[prop] = sel.value;
+    saveSettings();
+    restartCurrentQuiz();
+    sel.blur();
+  });
+}
 
 // ===== 開始画面 =====
 const overlay = document.getElementById('overlay');
@@ -1238,7 +1397,7 @@ let resizeTimer = null;
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(() => {
-    if (settings.mode === 'nameQuiz') return;   // クイズ中は鍵盤を出していない（戻ったときに作り直す）
+    if (settings.mode === 'nameQuiz') return;   // 音名当てクイズ中は鍵盤を出していない（戻ったときに作り直す）
     const oct = calcOctaves();
     if (oct !== octaves || calcRows(oct) !== rows) renderKeyboard();
     else sizeKeyboard();
