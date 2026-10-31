@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
 <meta name="theme-color" content="#1f2430">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>ピアノ練習 - 画面鍵盤</title>
@@ -108,10 +109,22 @@
     padding: 0 6px 6px;
   }
   .keyboard {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 100%;
+    touch-action: none;
+  }
+  .kb-caption {
+    font-size: 12px;
+    color: var(--sub);
+    padding-left: 2px;
+  }
+  .kb-row + .kb-caption { margin-top: 8px; }
+  .kb-row {
     position: relative;
     display: flex;
     width: 100%;
-    touch-action: none;
   }
   .key {
     position: relative;
@@ -249,6 +262,14 @@
       <option value="small">小</option>
     </select>
   </div>
+  <div class="group">
+    <span class="label">段数</span>
+    <select id="rowsSelect">
+      <option value="auto">自動</option>
+      <option value="1">1段</option>
+      <option value="2">2段</option>
+    </select>
+  </div>
 </div>
 
 <div class="display">
@@ -271,6 +292,7 @@ const settings = Object.assign({
   startOctave: null,   // null なら画面に合わせて自動
   labels: 'doremi',
   size: 'medium',
+  rows: 'auto',        // auto: 縦向きで余裕があれば2段
 }, loadSettings());
 
 function loadSettings() {
@@ -491,9 +513,14 @@ function updateDisplay() {
 }
 
 // ===== 鍵盤の描画 =====
+// 2段のときは、下段＝基準の音域（右手）、上段＝そのすぐ下の音域（左手）
 const keyboardEl = document.getElementById('keyboard');
 const KEY_MIN_WIDTH = { large: 58, medium: 44, small: 32 };
+const KEY_RATIO = 6;          // 白鍵の高さ÷幅の上限（実物のピアノに近い比率）
+const KEY_MAX_HEIGHT = 420;
+const DISPLAY_MIN = 90;       // 音名表示エリアに最低限残す高さ
 let octaves = 2;
+let rows = 1;
 let startOctave = 4;
 
 function calcOctaves() {
@@ -502,23 +529,57 @@ function calcOctaves() {
   return Math.max(1, Math.min(5, Math.floor((width / minW - 1) / 7)));
 }
 
+function calcRows(oct) {
+  if (settings.rows !== 'auto') return Number(settings.rows);
+  // 縦向きで、2段にしても鍵盤が十分な高さを保てるときだけ2段にする
+  const whiteW = (keyboardEl.clientWidth || window.innerWidth) / (oct * 7 + 1);
+  const available = window.innerHeight - document.querySelector('.controls').offsetHeight - DISPLAY_MIN;
+  const portrait = window.innerHeight > window.innerWidth * 1.1;
+  return portrait && available / 2 - 30 >= Math.min(whiteW * 4.5, 220) ? 2 : 1;
+}
+
 function clampStart(o) {
-  return Math.max(1, Math.min(7 - octaves, o));
+  const min = rows === 2 ? 1 + octaves : 1;
+  return Math.max(min, Math.min(7 - octaves, o));
+}
+
+function rangeLabel(low) {
+  return 'C' + low + '〜C' + (low + octaves);
 }
 
 function renderKeyboard() {
   releaseAll();
   octaves = calcOctaves();
+  rows = calcRows(octaves);
   const defaultStart = 4 - Math.floor((octaves - 1) / 2);
   startOctave = clampStart(settings.startOctave ?? defaultStart);
 
-  const low = 12 * (startOctave + 1);
-  const high = low + 12 * octaves;
-  const whiteCount = octaves * 7 + 1;
-  const whiteW = 100 / whiteCount;
-  const blackW = whiteW * 0.6;
-
   keyboardEl.innerHTML = '';
+  if (rows === 2) {
+    addRow(startOctave - octaves, '上段（左手）：' + rangeLabel(startOctave - octaves));
+    addRow(startOctave, '下段（右手）：' + rangeLabel(startOctave));
+  } else {
+    addRow(startOctave, null);
+  }
+  updateLabels();
+  sizeKeyboard();
+  document.getElementById('octLabel').textContent =
+    rows === 2 ? 'C' + (startOctave - octaves) + '〜C' + (startOctave + octaves) : rangeLabel(startOctave);
+}
+
+function addRow(lowOctave, caption) {
+  if (caption) {
+    const cap = document.createElement('div');
+    cap.className = 'kb-caption';
+    cap.textContent = caption;
+    keyboardEl.appendChild(cap);
+  }
+  const row = document.createElement('div');
+  row.className = 'kb-row';
+  const low = 12 * (lowOctave + 1);
+  const high = low + 12 * octaves;
+  const whiteW = 100 / (octaves * 7 + 1);
+  const blackW = whiteW * 0.6;
   let whiteIndex = 0;
   for (let midi = low; midi <= high; midi++) {
     const el = document.createElement('div');
@@ -538,11 +599,9 @@ function renderKeyboard() {
     const label = document.createElement('span');
     label.className = 'key-label';
     el.appendChild(label);
-    keyboardEl.appendChild(el);
+    row.appendChild(el);
   }
-  updateLabels();
-  sizeKeyboard();
-  document.getElementById('octLabel').textContent = 'C' + startOctave + '〜C' + (startOctave + octaves);
+  keyboardEl.appendChild(row);
 }
 
 function updateLabels() {
@@ -558,17 +617,17 @@ function updateLabels() {
 
 function sizeKeyboard() {
   // 白鍵の幅に合わせた高さにする（縦長の画面で鍵盤が伸びすぎないように）
-  const whiteCount = octaves * 7 + 1;
-  const whiteW = keyboardEl.clientWidth / whiteCount;
+  const whiteW = keyboardEl.clientWidth / (octaves * 7 + 1);
   const controlsH = document.querySelector('.controls').offsetHeight;
-  const available = window.innerHeight - controlsH - 90;
-  const h = Math.max(140, Math.min(available, whiteW * 5.2, 420));
-  keyboardEl.style.height = h + 'px';
+  const extra = rows === 2 ? 50 : 0;   // 段の見出しと間隔
+  const available = (window.innerHeight - controlsH - DISPLAY_MIN - extra) / rows;
+  const h = Math.max(100, Math.min(available, whiteW * KEY_RATIO, KEY_MAX_HEIGHT));
+  keyboardEl.querySelectorAll('.kb-row').forEach((row) => { row.style.height = h + 'px'; });
 }
 
 function setKeyActive(midi, on) {
-  const el = keyboardEl.querySelector('[data-midi="' + midi + '"]');
-  if (el) el.classList.toggle('active', on);
+  // 2段のときは同じ音の鍵盤が両方の段にあることがある
+  keyboardEl.querySelectorAll('[data-midi="' + midi + '"]').forEach((el) => el.classList.toggle('active', on));
 }
 
 // ===== タッチ・マウス操作（指を滑らせると隣の鍵盤に移る） =====
@@ -650,11 +709,13 @@ const toneSelect = document.getElementById('toneSelect');
 const volumeInput = document.getElementById('volume');
 const labelSelect = document.getElementById('labelSelect');
 const sizeSelect = document.getElementById('sizeSelect');
+const rowsSelect = document.getElementById('rowsSelect');
 
 toneSelect.value = settings.tone;
 volumeInput.value = settings.volume;
 labelSelect.value = settings.labels;
 sizeSelect.value = settings.size;
+rowsSelect.value = settings.rows;
 
 toneSelect.addEventListener('change', () => {
   settings.tone = toneSelect.value;
@@ -677,6 +738,12 @@ sizeSelect.addEventListener('change', () => {
   saveSettings();
   renderKeyboard();
   sizeSelect.blur();
+});
+rowsSelect.addEventListener('change', () => {
+  settings.rows = rowsSelect.value;
+  saveSettings();
+  renderKeyboard();
+  rowsSelect.blur();
 });
 document.getElementById('octDown').addEventListener('click', () => shiftOctave(-1));
 document.getElementById('octUp').addEventListener('click', () => shiftOctave(1));
@@ -705,7 +772,8 @@ let resizeTimer = null;
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(() => {
-    if (calcOctaves() !== octaves) renderKeyboard();
+    const oct = calcOctaves();
+    if (oct !== octaves || calcRows(oct) !== rows) renderKeyboard();
     else sizeKeyboard();
   }, 150);
 });
