@@ -338,6 +338,9 @@
   .hand-select button:first-child { border-radius: 8px 0 0 8px; margin-left: 0; }
   .hand-select button:last-child { border-radius: 0 8px 8px 0; }
   .hand-select button.on { background: var(--accent); border-color: var(--accent); color: #fff; position: relative; }
+  .loop-row { display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--sub); }
+  .loop-row select { min-width: 56px; }
+  #loopBtn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
   #tempoLabel { min-width: 52px; font-variant-numeric: tabular-nums; }
   .key.white.demo-left { background: #c3a3ff; }
   .key.black.demo-left { background: #7e4fe0; }
@@ -508,6 +511,13 @@
       <button data-hand="right">右手</button>
       <button data-hand="left">左手</button>
     </div>
+    <div class="loop-row" role="group" aria-label="練習する区間">
+      <select id="loopFrom" aria-label="区間の始まりの小節"></select>
+      <span>〜</span>
+      <select id="loopTo" aria-label="区間の終わりの小節"></select>
+      <span>小節</span>
+      <button id="loopBtn" aria-pressed="false">くり返し：オフ</button>
+    </div>
     <button id="playBtn">▶ 再生</button>
   </div>
   <div id="songHint" data-modes="song"></div>
@@ -548,6 +558,8 @@ const settings = Object.assign({
   songHand: 'both',      // 練習する手：both（両手＝お手本を聴く）/ right / left
   songAdvance: 'wait',   // 片手練習の進み方：wait（弾くまで待つ）/ tempo（テンポ通り）
   songOther: 'play',     // 片手練習のもう片方の手：play（自動で鳴らす）/ mute（鳴らさない）
+  songRanges: {},        // 曲ごとの練習する区間（曲のid → { from, to }：小節の番号。全体なら記録しない）
+  songLoop: false,       // 区間をくり返すか
   controlsOpen: null,    // 設定を開いているか（null なら画面の大きさで決める）
 }, loadJSON(STORAGE_KEY));
 
@@ -1595,11 +1607,29 @@ function getSong(id) {
 const currentSong = () => getSong(settings.songId);
 const songTempo = (song) => settings.songTempos[song.id] || song.tempo;
 
+// 練習する区間（小節の番号）。保存した区間が曲の長さに合わなければ直す
+function songRange(song) {
+  const r = settings.songRanges[song.id] || {};
+  const from = Math.min(song.bars, Math.max(1, r.from || 1));
+  const to = Math.min(song.bars, Math.max(from, r.to || song.bars));
+  return { from, to, whole: from === 1 && to === song.bars };
+}
+
+// 区間に入っている音と、区間の始まり・終わりの拍。区間の終わりをはみ出す音は、区間の終わりで切る
+function rangeEvents(song, range = songRange(song)) {
+  const start = (range.from - 1) * song.beatsPerBar;
+  const end = Math.min(song.totalBeats, range.to * song.beatsPerBar);
+  const events = song.events
+    .filter((e) => e.beat >= start - 1e-6 && e.beat < end - 1e-6)
+    .map((e) => (e.beat + e.dur > end ? { ...e, dur: end - e.beat } : e));
+  return { start, end, events };
+}
+
 // 鍵盤の位置（下段の左端のオクターブ）を、曲の音がいちばん多く入る位置にする
 // 2段のときは、右手の音は下段、左手の音は上段に入っている数で比べる
-// 片手練習のときは、練習する手の音を優先する（10倍の重みで数える）
+// 片手練習のときは、練習する手の音を優先する（10倍の重みで数える）。区間を決めているときは区間の音だけで数える
 function fitOctaveForSong() {
-  const events = currentSong().events;
+  const events = rangeEvents(currentSong()).events;
   const practice = settings.songHand === 'both' ? null : settings.songHand;
   const inRange = (m, lowOct) => m >= 12 * (lowOct + 1) && m <= 12 * (lowOct + 1 + octaves);
   let best = null;
@@ -1626,7 +1656,16 @@ const player = {
   playing: false,
   song: null,
   tempo: 100,
+  // 区間：曲全体か、指定した小節だけ。くり返すときは、拍を区間の長さ（len）ずつ足して数える
+  //   （2回目の区間の始まり＝ start + len 拍目。音の拍＝曲の中の拍 + 何回目 × len）
+  events: [],          // 区間に入っている音
+  start: 0,            // 区間の始まりの拍
+  end: 0,              // 区間の終わりの拍
+  len: 0,
+  loop: false,         // 区間をくり返すか
+  whole: true,         // 曲全体か
   idx: 0,              // 次に予約する音の番号
+  pass: 0,             // 次に予約する音が何回目の区間か（0から数える）
   anchorTime: 0,       // テンポの基準：この時刻に anchorBeat 拍目
   anchorBeat: 0,
   scheduled: [],       // 予約した音（停止したときに消すため）
@@ -1639,6 +1678,9 @@ const player = {
   muteOther: false,    // もう片方の手を鳴らさないか
   steps: [],           // 練習する手の「弾くところ」：{ beat, midis }（同じ拍の音はまとめる）
   stepIdx: 0,          // 次に弾くところの番号
+  stepPass: 0,         // 次に弾くところが何回目の区間か
+  passMissStart: 0,    // いまの回が始まったときのミスの数
+  lastPassMisses: null,  // 前の回のミスの数
   pressed: new Set(),  // 次に弾くところのうち、もう押した音（和音は全部押したら進む）
   misses: 0,
 };
@@ -1646,7 +1688,29 @@ const lit = new Map();   // 光らせている鍵盤：midi → 'right' / 'left'
 
 const beatToTime = (beat) => player.anchorTime + (beat - player.anchorBeat) * 60 / player.tempo;
 const timeToBeat = (time) => player.anchorBeat + (time - player.anchorTime) * player.tempo / 60;
-const currentStep = () => (player.wait ? player.steps[player.stepIdx] : undefined);
+
+// 次に弾くところ（拍はくり返しの回数を足したもの）。くり返すときは、区間の最後まで弾いたら最初に戻る
+function currentStep() {
+  if (!player.wait) return undefined;
+  if (player.stepIdx >= player.steps.length && player.loop && player.steps.length) {
+    player.stepIdx = 0;
+    player.stepPass++;
+    player.lastPassMisses = player.misses - player.passMissStart;
+    player.passMissStart = player.misses;
+  }
+  const s = player.steps[player.stepIdx];
+  return s && { beat: s.beat + player.stepPass * player.len, midis: s.midis };
+}
+
+// 次に予約する音の拍（くり返しの回数を足したもの）。もうなければ Infinity
+function peekBeat() {
+  if (player.idx >= player.events.length) {
+    if (!player.loop || !player.events.length) return Infinity;
+    player.idx = 0;
+    player.pass++;
+  }
+  return player.events[player.idx].beat + player.pass * player.len;
+}
 
 // いまの拍。弾くまで待つときは、次に弾くところで止まる
 function playbackBeat(time) {
@@ -1656,9 +1720,9 @@ function playbackBeat(time) {
 }
 
 // 練習する手の音を、同じ拍ごとにまとめる
-function buildSteps(song, hand) {
+function buildSteps(events, hand) {
   const steps = [];
-  for (const ev of song.events) {
+  for (const ev of events) {
     if (ev.hand !== hand) continue;
     const last = steps[steps.length - 1];
     if (last && Math.abs(last.beat - ev.beat) < 1e-6) last.midis.push(...ev.midis);
@@ -1672,19 +1736,31 @@ function startPlayback() {
   const song = currentSong();
   const practice = settings.songHand === 'both' ? null : settings.songHand;
   const wait = !!practice && settings.songAdvance === 'wait';
+  const range = songRange(song);
+  const { start, end, events } = rangeEvents(song, range);
   Object.assign(player, {
     playing: true,
     song,
     tempo: songTempo(song),
+    events,
+    start,
+    end,
+    len: end - start,
+    loop: settings.songLoop,
+    whole: range.whole,
     idx: 0,
+    pass: 0,
     anchorTime: ctx.currentTime + 0.15,
-    anchorBeat: 0,
+    anchorBeat: start,
     scheduled: [],
     practice,
     wait,
     muteOther: !!practice && settings.songOther === 'mute',
-    steps: wait ? buildSteps(song, practice) : [],
+    steps: wait ? buildSteps(events, practice) : [],
     stepIdx: 0,
+    stepPass: 0,
+    passMissStart: 0,
+    lastPassMisses: null,
     pressed: new Set(),
     misses: 0,
   });
@@ -1719,29 +1795,28 @@ function stopPlayback(finished = false) {
   playBtn.classList.remove('playing');
   showSong();
   if (finished && player.wait) {
-    setSongStatus(`最後まで弾けました！　ミス ${player.misses}回`);
+    setSongStatus(`${player.whole ? '最後まで' : '区間を'}弾けました！　ミス ${player.misses}回`);
   }
 }
 
 function schedule() {
   if (!player.playing || !ctx) return;
   const now = ctx.currentTime;
-  const events = player.song.events;
   // 弾くまで待つときは、次に弾くところより前の音だけ予約する（同じ拍の音は、弾いたときに鳴らす）
   const step = currentStep();
   const limit = step ? step.beat - 1e-6 : Infinity;
-  while (player.idx < events.length && events[player.idx].beat < limit &&
-         beatToTime(events[player.idx].beat) < now + SCHEDULE_AHEAD) {
-    const ev = events[player.idx++];
+  for (let b = peekBeat(); b < limit && beatToTime(b) < now + SCHEDULE_AHEAD; b = peekBeat()) {
+    const ev = player.events[player.idx++];
     // 練習する手の音は鳴らさない（自分で弾く）。もう片方を鳴らさない設定ならそれも鳴らさない
     if (ev.hand === player.practice || player.muteOther) continue;
-    const t = Math.max(now, beatToTime(ev.beat));
+    const t = Math.max(now, beatToTime(b));
     // 同じ音が続いても聞き分けられるよう、少しだけ短く鳴らす
     const dur = Math.max(0.05, ev.dur * 60 / player.tempo - 0.03);
     ev.midis.forEach((m) => playScheduled(m, t, dur));
   }
   player.scheduled = player.scheduled.filter((v) => v.end > now);
-  if (player.idx >= events.length && !step && now > beatToTime(player.song.totalBeats) + 0.3) stopPlayback(true);
+  // くり返さないときは、区間の終わりまで行ったら止める（くり返すときは停止ボタンで止める）
+  if (!player.loop && peekBeat() === Infinity && !step && now > beatToTime(player.end) + 0.3) stopPlayback(true);
 }
 
 function playScheduled(midi, t, dur) {
@@ -1770,8 +1845,7 @@ function songNoteOn(midi) {
   player.pressed.add(match);
   if (!step.midis.every((m) => player.pressed.has(m))) return;
   // 全部押せたので次へ。早めに弾いたときは、その位置まで進める（間の伴奏は飛ばす）
-  const events = player.song.events;
-  while (player.idx < events.length && events[player.idx].beat < step.beat - 1e-6) player.idx++;
+  while (peekBeat() < step.beat - 1e-6) player.idx++;
   player.anchorBeat = step.beat;
   player.anchorTime = ctx.currentTime;
   player.stepIdx++;
@@ -1784,13 +1858,16 @@ function drawPlayback() {
   if (!player.playing) return;
   // スピーカーから実際に音が出るまでの遅れの分だけ、表示を遅らせる
   const latency = ctx.outputLatency || ctx.baseLatency || 0;
-  const beat = playbackBeat(ctx.currentTime - latency);
+  const vbeat = playbackBeat(ctx.currentTime - latency);
+  // 何回目の区間か（0から）と、曲の中の拍
+  const pass = player.loop ? Math.max(0, Math.floor((vbeat - player.start) / player.len + 1e-6)) : 0;
+  const beat = vbeat - pass * player.len;
   const step = currentStep();
   const next = new Map();
-  for (const ev of player.song.events) {
+  for (const ev of player.events) {
     if (ev.beat > beat) break;
     if (player.wait && ev.hand === player.practice) continue;   // 練習する手は「次に弾く鍵盤」として下で光らせる
-    if (step && ev.beat >= step.beat - 1e-6) continue;          // 次に弾くところと同じ拍の音は、弾いてから鳴るので、まだ光らせない
+    if (step && ev.beat + pass * player.len >= step.beat - 1e-6) continue;   // 次に弾くところと同じ拍の音は、弾いてから鳴るので、まだ光らせない
     // 同じ音が続くときに光り直して見えるよう、音の長さの9割だけ光らせる
     if (beat < ev.beat + ev.dur * 0.9) {
       for (const m of ev.midis) if (next.get(m) !== 'right') next.set(m, ev.hand);
@@ -1799,8 +1876,22 @@ function drawPlayback() {
   // 弾くまで待つ：次に弾く鍵盤（まだ押していない音）を光らせる。練習する手の色を優先
   if (step) for (const m of step.midis) if (!player.pressed.has(m)) next.set(m, player.practice);
   setLit(next);
-  const bar = Math.min(player.song.bars, Math.max(1, Math.floor(beat / player.song.beatsPerBar) + 1));
-  setSongStatus(`${bar} / ${player.song.bars} 小節　♩=${player.tempo}` + (player.wait ? `　ミス ${player.misses}` : ''));
+  const song = player.song;
+  const firstBar = player.start / song.beatsPerBar + 1;
+  const lastBar = Math.ceil(player.end / song.beatsPerBar - 1e-6);
+  const bar = Math.min(lastBar, Math.max(firstBar, Math.floor(beat / song.beatsPerBar + 1e-6) + 1));
+  let text = `${bar} / ${song.bars} 小節　♩=${player.tempo}`;
+  if (player.loop) {
+    // くり返すときは、何回目かと、この回のミス（弾くまで待つとき）を出す
+    text += `　${(player.wait ? player.stepPass : pass) + 1}回目`;
+    if (player.wait) {
+      text += `　ミス ${player.misses - player.passMissStart}`;
+      if (player.lastPassMisses !== null) text += `（前回 ${player.lastPassMisses}）`;
+    }
+  } else if (player.wait) {
+    text += `　ミス ${player.misses}`;
+  }
+  setSongStatus(text);
   player.raf = requestAnimationFrame(drawPlayback);
 }
 
@@ -1831,10 +1922,13 @@ function showSong() {
   tempoInput.value = songTempo(song);
   document.getElementById('tempoLabel').textContent = '♩=' + songTempo(song);
   const hand = settings.songHand;
+  const range = songRange(song);
+  showRange(song, range);
   const keys = new Set(visibleMidis());
-  const outside = keys.size > 0 && song.events.some((e) =>
+  const outside = keys.size > 0 && rangeEvents(song, range).events.some((e) =>
     (hand === 'both' || e.hand === hand) && e.midis.some((m) => !keys.has(m)));
-  setSongStatus(`全${song.bars}小節　♩=${songTempo(song)}` + (outside ? '　※鍵盤に入りきらない音があります' : ''));
+  const bars = range.whole ? `全${song.bars}小節` : `${range.from}〜${range.to}小節（全${song.bars}小節）`;
+  setSongStatus(`${bars}　♩=${songTempo(song)}` + (outside ? '　※鍵盤に入りきらない音があります' : ''));
   handSelect.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.hand === hand));
   document.getElementById('songHint').textContent = songHintText();
 }
@@ -1896,6 +1990,56 @@ for (const [id, prop] of [['songAdvanceSelect', 'songAdvance'], ['songOtherSelec
 playBtn.addEventListener('click', () => {
   if (player.playing) stopPlayback();
   else startPlayback();
+});
+
+// ===== 部分ループ（区間を決めてくり返す） =====
+const loopFrom = document.getElementById('loopFrom');
+const loopTo = document.getElementById('loopTo');
+const loopBtn = document.getElementById('loopBtn');
+
+// 区間の選択欄とくり返しボタンを、いまの曲・設定に合わせる
+function showRange(song, range) {
+  for (const sel of [loopFrom, loopTo]) {
+    if (sel.options.length !== song.bars) {
+      sel.innerHTML = '';
+      for (let i = 1; i <= song.bars; i++) {
+        const opt = document.createElement('option');
+        opt.value = i;
+        opt.textContent = i;
+        sel.appendChild(opt);
+      }
+    }
+  }
+  loopFrom.value = range.from;
+  loopTo.value = range.to;
+  loopBtn.textContent = 'くり返し：' + (settings.songLoop ? 'オン' : 'オフ');
+  loopBtn.classList.toggle('on', settings.songLoop);
+  loopBtn.setAttribute('aria-pressed', String(settings.songLoop));
+}
+
+// 区間を変えたら再生を止め、区間の音に合わせて鍵盤の位置を決め直す
+// 始まりを終わりより後にしたら終わりを、終わりを始まりより前にしたら始まりを合わせる
+function changeRange(changed) {
+  stopPlayback();
+  const song = currentSong();
+  let from = Number(loopFrom.value);
+  let to = Number(loopTo.value);
+  if (from > to) { if (changed === loopFrom) to = from; else from = to; }
+  if (from === 1 && to === song.bars) delete settings.songRanges[song.id];
+  else settings.songRanges[song.id] = { from, to };
+  saveSettings();
+  songOctave = null;
+  renderKeyboard();   // この中で停止中の表示も直す
+  changed.blur();
+}
+loopFrom.addEventListener('change', () => changeRange(loopFrom));
+loopTo.addEventListener('change', () => changeRange(loopTo));
+
+loopBtn.addEventListener('click', () => {
+  stopPlayback();
+  settings.songLoop = !settings.songLoop;
+  saveSettings();
+  showSong();
 });
 
 // テンポは再生中でも変えられる（いまの位置を基準にして、そこから先の速さを変える）
