@@ -456,14 +456,6 @@
     </select>
   </div>
   <div class="group">
-    <span class="label">音の明るさ</span>
-    <select id="brightnessSelect">
-      <option value="normal">ふつう</option>
-      <option value="bright">明るめ</option>
-      <option value="brighter">とても明るめ</option>
-    </select>
-  </div>
-  <div class="group">
     <span class="label">音量</span>
     <input type="range" id="volume" min="0" max="100" step="1">
   </div>
@@ -604,7 +596,6 @@
 const STORAGE_KEY = 'piano-practice:settings';
 const settings = Object.assign({
   tone: 'piano',
-  brightness: 'normal',  // 音の明るさ：normal（ふつう）/ bright（明るめ）/ brighter（とても明るめ）
   volume: 70,
   startOctave: null,   // null なら画面に合わせて自動
   labels: 'doremi',
@@ -778,34 +769,15 @@ function osc(type, freq, t) {
 //     表は、耳の感度（ISO 226 の等ラウドネス曲線・60phon）と小さなスピーカーの特性で重みづけして
 //     各音の大きさを測り、ド5と同じ大きさに聞こえるように決めた値（dB）。docs/technical-notes.md に測り方を書いている
 const LOUDNESS_MIDI_START = 24;   // 表の最初の音（ド1）。そこから半オクターブ（6半音）ごと
-// 音の明るさごとに表を持つ（明るさを変えると倍音の分け方が変わり、高さごとの聞こえ方も変わるため）
 const LOUDNESS_TABLE = {
-  normal: {
-    piano: [15, 11.5, 7, 5.5, 5.5, 5.5, 5, 1.5, 0, -1, -2, -2, -2.5],
-    epiano: [15, 15, 11.5, 8.5, 6.5, 6, 5.5, 1.5, 0, -0.5, -2, -2.5, -2.5],
-    organ: [15, 15, 12, 9, 7, 5.5, 4.5, 1.5, 0, -1, -2.5, -3, -3.5],
-    synth: [15, 12.5, 11, 9.5, 7.5, 6, 4.5, 1.5, 0, -1, -2.5, -2, -2.5],
-  },
-  bright: {
-    piano: [14.5, 8.5, 4, 2, 2, 2.5, 3.5, 1, 0, -1, -2, -2, -1.5],
-    epiano: [15, 12, 6, 4.5, 3.5, 3, 4, 1, 0, -1, -2.5, -2, -1.5],
-    organ: [15, 15, 9.5, 6.5, 4.5, 4, 3.5, 1.5, 0, -1.5, -3, -2.5, -2],
-    synth: [14, 12, 10.5, 9, 7.5, 5.5, 4, 1, 0, -1, -1.5, -1, -1.5],
-  },
-  brighter: {
-    piano: [12.5, 7, 3, 0.5, 0, 0, 2.5, 1.5, 0, -1, -1.5, 0, 1.5],
-    epiano: [15, 8, 3.5, 2.5, 2, 2.5, 3.5, 1.5, 0, -1, -2, -2.5, -1.5],
-    organ: [15, 14, 8.5, 5.5, 3.5, 3, 3, 1.5, 0, -2, -3, -2, -1],
-    synth: [13, 11.5, 10, 8.5, 6.5, 5, 3.5, 1, 0, -0.5, -1.5, -1, -1.5],
-  },
+  piano: [15, 11.5, 7, 5.5, 5.5, 5.5, 5, 1.5, 0, -1, -2, -2, -2.5],
+  epiano: [15, 15, 11.5, 8.5, 6.5, 6, 5.5, 1.5, 0, -0.5, -2, -2.5, -2.5],
+  organ: [15, 15, 12, 9, 7, 5.5, 4.5, 1.5, 0, -1, -2.5, -3, -3.5],
+  synth: [15, 12.5, 11, 9.5, 7.5, 6, 4.5, 1.5, 0, -1, -2.5, -2, -2.5],
 };
-// 音の明るさ：0（ふつう）〜2（とても明るめ）。明るいほど高い倍音を強くする。
-// 小さなスピーカーがよく鳴らせて、耳もいちばん敏感な 1000〜4000Hz あたりの成分が増えるので、同じ大きさでも聞こえやすくなる
-const BRIGHTNESS_LEVEL = { normal: 0, bright: 1, brighter: 2 };
-const brightness = () => BRIGHTNESS_LEVEL[settings.brightness] ?? 0;
 const freqToMidi = (freq) => 69 + 12 * Math.log2(freq / 440);
 function loudnessGain(tone, freq) {
-  const table = (LOUDNESS_TABLE[settings.brightness] || LOUDNESS_TABLE.normal)[tone];
+  const table = LOUDNESS_TABLE[tone];
   const x = Math.min(table.length - 1, Math.max(0, (freqToMidi(freq) - LOUDNESS_MIDI_START) / 6));
   const i = Math.min(table.length - 2, Math.floor(x));
   const db = table[i] + (table[i + 1] - table[i]) * (x - i);
@@ -846,8 +818,6 @@ function partialDelay(n, count, f) {
 
 // 音色ごとの合成。戻り値: { out: GainNode, oscs: [...], release: 秒 }
 const PIANO_PARTIALS = [1, 0.55, 0.3, 0.16, 0.09, 0.05, 0, 0, 0, 0, 0, 0];
-// 明るめにするとき：高い倍音まで少しずつ足し、倍音の番号 n に応じて n^(0.6 × 明るさ) 倍に強める
-const PIANO_PARTIALS_BRIGHT = [1, 0.55, 0.3, 0.16, 0.09, 0.05, 0.03, 0.02, 0.012, 0.008, 0.005, 0.003];
 // 低い音用：倍音を多めにする（本物のピアノの低音も倍音が多い）
 const PIANO_PARTIALS_LOW = [1, 0.8, 0.65, 0.55, 0.45, 0.38, 0.32, 0.26, 0.21, 0.17, 0.13, 0.1];
 const TONES = {
@@ -856,15 +826,11 @@ const TONES = {
     const bus = voiceBus('piano', freq, out);
     const decay = Math.min(6, Math.max(0.7, 3.2 * Math.sqrt(261.6 / freq)));
     const low = lowness(freq);
-    const b = brightness();
-    const base = b > 0 ? PIANO_PARTIALS_BRIGHT : PIANO_PARTIALS;
-    // 低い音はもともと倍音が多いので、明るさの効きを半分にする
-    const tilt = 0.6 * b * (1 - 0.5 * low);
     const oscs = [];
     const count = PIANO_PARTIALS.length;
     for (let i = 0; i < count; i++) {
       const n = i + 1;
-      const amp = Math.min(1, (base[i] + (PIANO_PARTIALS_LOW[i] - base[i]) * low) * Math.pow(n, tilt));
+      const amp = PIANO_PARTIALS[i] + (PIANO_PARTIALS_LOW[i] - PIANO_PARTIALS[i]) * low;
       if (amp < 0.01) continue;
       // 本物のピアノのように高い倍音ほど少し高くずらす（インハーモニシティ）のは第3倍音まで。
       // 第4倍音より上は第3倍音と同じ割合でずらしてそろえ、ずらした位相が崩れないようにする
@@ -894,10 +860,8 @@ const TONES = {
     // 低い音は変調を強めに残して倍音を増やす
     const low = lowness(freq);
     // （エレピの波形はピークが一定なので、倍音を増やしても音割れしにくい）
-    // 明るめにするときは、変調をさらに強くする
-    const bright = 1 + 0.5 * brightness();
-    modGain.gain.setValueAtTime(freq * (2.2 + 2.5 * low) * bright, t);
-    modGain.gain.setTargetAtTime(freq * (0.25 + 3.5 * low) * bright, t, 0.25);
+    modGain.gain.setValueAtTime(freq * (2.2 + 2.5 * low), t);
+    modGain.gain.setTargetAtTime(freq * (0.25 + 3.5 * low), t, 0.25);
     mod.connect(modGain).connect(carrier.frequency);
     const amp = ctx.createGain();
     amp.gain.setValueAtTime(0, t);
@@ -921,7 +885,7 @@ const TONES = {
       if (freq * n > 12000 || a < 0.01) continue;
       const o = osc('sine', freq * n, t + (n > 1 ? partialDelay(n, bars.length, freq * n) : 0));
       const g = ctx.createGain();
-      g.gain.value = n >= 3 ? a * (1 + 0.5 * brightness()) : a;   // 明るめにするときは、高い段を強くする
+      g.gain.value = a;
       o.connect(g).connect(sum);
       oscs.push(o);
     }
@@ -937,11 +901,9 @@ const TONES = {
     const filter = ctx.createBiquadFilter();
     filter.type = 'lowpass';
     filter.Q.value = 2;
-    // 明るめにするときは、フィルターを開く（高い成分を残す）
-    const open = 1 + 0.7 * brightness();
-    filter.frequency.setValueAtTime(Math.min(16000, freq * 10 * open), t);
+    filter.frequency.setValueAtTime(Math.min(16000, freq * 10), t);
     // 低い音でもこもりすぎないよう、フィルターは900Hzより下げない
-    filter.frequency.setTargetAtTime(Math.min(16000, Math.max(900, freq * 3) * open), t, 0.2);
+    filter.frequency.setTargetAtTime(Math.min(16000, Math.max(900, freq * 3)), t, 0.2);
     const amp = ctx.createGain();
     amp.gain.setValueAtTime(0, t);
     amp.gain.linearRampToValueAtTime(0.22, t + 0.01);
@@ -1373,13 +1335,6 @@ sizeSelect.value = settings.size;
 rowsSelect.value = settings.rows;
 displaySelect.value = settings.display;
 
-const brightnessSelect = document.getElementById('brightnessSelect');
-brightnessSelect.value = settings.brightness;
-brightnessSelect.addEventListener('change', () => {
-  settings.brightness = brightnessSelect.value;
-  saveSettings();
-  brightnessSelect.blur();
-});
 toneSelect.addEventListener('change', () => {
   settings.tone = toneSelect.value;
   saveSettings();
@@ -1714,7 +1669,7 @@ const ua = navigator.userAgent;
 const isIOS = /iPad|iPhone|iPod|CriOS|FxiOS|EdgiOS/.test(ua) ||
   ((/Macintosh/.test(ua) || navigator.platform === 'MacIntel') && (navigator.maxTouchPoints > 1 || 'ontouchend' in document));
 // 開始画面の下に、版と端末の判定を出す（実機で古い版が表示されていないか・iPadとして動いているかを確かめるため）
-const APP_VERSION = '2026-11-01c';
+const APP_VERSION = '2026-11-01d';
 document.getElementById('appVersion').textContent =
   `版 ${APP_VERSION}・${isIOS ? 'iPad・iPhone' : 'iPad・iPhone以外'}として動作中`;
 if (isIOS) document.getElementById('iosNotice').classList.remove('hidden');
