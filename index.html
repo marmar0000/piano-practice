@@ -19,8 +19,10 @@
     --black-key: #1a1a1a;
     --black-key-active: #2f6fc0;
   }
-  * { box-sizing: border-box; }
+  /* ダブルタップでの拡大を止める（iOSでは親だけでなく各部品にも指定しないと効かないことがある） */
+  * { box-sizing: border-box; touch-action: manipulation; }
   html, body {
+    touch-action: manipulation;
     margin: 0;
     height: 100%;
     background: var(--bg);
@@ -121,8 +123,9 @@
     flex-direction: column;
     gap: 6px;
     width: 100%;
-    touch-action: none;
   }
+  /* 鍵盤は指を滑らせる操作を自前で処理するので、ブラウザのタッチ操作をすべて止める */
+  .keyboard, .keyboard * { touch-action: none; }
   .kb-caption {
     font-size: 12px;
     color: var(--sub);
@@ -1378,6 +1381,21 @@ function showOverlay(resume) {
 }
 // iOSでは「指を離した（タップが完了した）」操作でないと音を開始できないことがあるので click で受ける
 overlay.addEventListener('click', hideOverlay);
+
+// ダブルタップでの拡大を止める予備の処理（iOSではCSSだけでは止めきれないことがある。五線譜のSVGの上など）
+// 短い間隔の2回目のタップはブラウザの動作を止め、ボタンの上ならボタンの操作だけ行う
+let lastTouchEnd = 0;
+document.addEventListener('touchend', (e) => {
+  const now = Date.now();
+  const quick = now - lastTouchEnd < 350;
+  lastTouchEnd = now;
+  if (!quick || e.touches.length > 0) return;
+  const t = e.target;
+  if (!t.closest || t.closest('.keyboard, select, input')) return;   // 鍵盤は自前で処理、選択欄・スライダーはそのまま
+  e.preventDefault();
+  const target = t.closest('button, .overlay');
+  if (target) target.click();
+}, { passive: false });
 
 // 音が止まっていたら、操作のたびに再開を試みる
 for (const type of ['pointerup', 'touchend', 'click', 'keydown']) {

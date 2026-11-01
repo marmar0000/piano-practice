@@ -12,6 +12,9 @@
 - iOSではアプリを切り替えるとAudioContextが止まる（suspended / interrupted）ことがあり、`resume()` しても戻らない場合がある
   - 対策（index.html で実装済み）：操作のたびに再開を試み、0.6秒たっても戻らなければ「タップして音を再開」画面を出し、AudioContextを作り直す。画面に戻ってきたときに止まっていても同じ画面を出す
   - 開始時に無音を一瞬再生して、音の出力を確実に始める
+- ダブルタップでの拡大：iOSは viewport の `user-scalable=no` を無視する
+  - 対策（index.html で実装済み）：すべての部品に `touch-action: manipulation` を指定（鍵盤は `none`）。さらに予備として、0.35秒以内の2回目のタップは touchend で preventDefault し、ボタンの上なら click() を呼んでボタンの操作だけ行う（鍵盤・選択欄・スライダーは対象外）
+  - 2本指で広げる拡大（ピンチ）は止めていない
 - マイク（getUserMedia）はHTTPSでないと使えない（GitHub PagesはHTTPSなのでOK）
 
 ## 画面鍵盤ピアノの実装メモ（index.html）
