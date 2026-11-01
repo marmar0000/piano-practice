@@ -499,6 +499,13 @@
       <option value="2">2段</option>
     </select>
   </div>
+  <div class="group" id="iosMediaGroup" hidden>
+    <span class="label">音の扱い（iPad）</span>
+    <select id="iosMediaSelect">
+      <option value="on">メディアとして再生（試験中）</option>
+      <option value="off">これまでどおり</option>
+    </select>
+  </div>
   <div class="group" data-modes="nameQuiz">
     <span class="label">音部記号</span>
     <select id="quizClefSelect">
@@ -613,6 +620,7 @@ const settings = Object.assign({
   songOther: 'play',     // 片手練習のもう片方の手：play（自動で鳴らす）/ mute（鳴らさない）
   songRanges: {},        // 曲ごとの練習する区間（曲のid → { from, to }：小節の番号。全体なら記録しない）
   songLoop: false,       // 区間をくり返すか
+  iosMediaPlayback: true,  // iPad・iPhone：無音の音声を流して、音を「メディア再生」として扱わせる（試験中）
   timingOffset: 0,       // タイミング調整：この端末で、押してから判定に届くまでの遅れ（秒）。判定のときに差し引く
   controlsOpen: null,    // 設定を開いているか（null なら画面の大きさで決める）
 }, loadJSON(STORAGE_KEY));
@@ -1665,8 +1673,60 @@ const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) ||
   (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 if (isIOS) document.getElementById('iosNotice').classList.remove('hidden');
 
+// ===== iPad・iPhone：Webページの音を「メディア再生」として扱わせる（試験中） =====
+// iOSはWebページが作った音（Web Audio）を、動画・音楽アプリの「メディア再生」とは別の種類の音として扱うことがあり、
+// 消音（マナーモード）で鳴らない・機器の音量を下げたときにほかのアプリより小さい、といった違いが出る。
+// タップしたときに無音の音声（<audio>）を再生し続けておくと、ページ全体がメディア再生として扱われる（よく使われる方法）
+// Android・PCでは不要（メディアの通知が出てしまう）なので、iOSだけで行う
+let mediaAudio = null;
+function silentWavUrl() {
+  const rate = 8000;
+  const n = rate / 2;   // 0.5秒
+  const buf = new ArrayBuffer(44 + n * 2);   // 16ビット・モノラルのWAV（中身はすべて0）
+  const v = new DataView(buf);
+  const text = (o, t) => { for (let i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)); };
+  text(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); text(8, 'WAVE');
+  text(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  text(36, 'data'); v.setUint32(40, n * 2, true);
+  return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+}
+// タップなどの操作の中で呼ぶ（iOSは操作の中でないと再生を始められない）
+function startMediaPlayback() {
+  if (!isIOS || !settings.iosMediaPlayback) return;
+  if (!mediaAudio) {
+    mediaAudio = document.createElement('audio');
+    mediaAudio.src = silentWavUrl();
+    mediaAudio.loop = true;
+    mediaAudio.preload = 'auto';
+    mediaAudio.setAttribute('playsinline', '');
+    mediaAudio.setAttribute('x-webkit-airplay', 'deny');
+    mediaAudio.disableRemotePlayback = true;
+    // コントロールセンターなどに出たときの表示
+    try { if ('mediaSession' in navigator) navigator.mediaSession.metadata = new MediaMetadata({ title: 'ピアノ練習' }); } catch (e) {}
+  }
+  if (mediaAudio.paused) mediaAudio.play().catch(() => {});
+}
+function stopMediaPlayback() {
+  if (mediaAudio && !mediaAudio.paused) mediaAudio.pause();
+}
+
+if (isIOS) {
+  const group = document.getElementById('iosMediaGroup');
+  const sel = document.getElementById('iosMediaSelect');
+  group.hidden = false;
+  sel.value = settings.iosMediaPlayback ? 'on' : 'off';
+  // 切り替えたら、確実に反映させるためページを読み込み直す（開始画面からやり直し）
+  sel.addEventListener('change', () => {
+    settings.iosMediaPlayback = sel.value === 'on';
+    saveSettings();
+    location.reload();
+  });
+}
+
 function hideOverlay() {
   audioStarted = true;
+  startMediaPlayback();   // 先に無音の音声を再生してから、Web Audio を始める
   initAudio();
   overlay.classList.add('hidden');
 }
@@ -2673,13 +2733,16 @@ document.addEventListener('touchend', (e) => {
 // 音が止まっていたら、操作のたびに再開を試みる
 for (const type of ['pointerup', 'touchend', 'click', 'keydown']) {
   document.addEventListener(type, () => {
-    if (audioStarted && (!ctx || ctx.state !== 'running')) initAudio();
+    if (!audioStarted) return;
+    if (mediaAudio && mediaAudio.paused) startMediaPlayback();
+    if (!ctx || ctx.state !== 'running') initAudio();
   }, true);
 }
 
 // 画面を離れたら鳴っている音を止める。戻ってきたとき音が止まっていたら再開用の画面を出す
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) { setSustain(false); releaseAll(); stopPlayback(); return; }
+  // 無音の音声も止める（ほかのアプリに戻ったあとも再生が続かないように）。戻ってきて操作したら再開する
+  if (document.hidden) { setSustain(false); releaseAll(); stopPlayback(); stopMediaPlayback(); return; }
   if (audioStarted && ctx && ctx.state !== 'running') showOverlay(true);
 });
 
