@@ -289,6 +289,51 @@
   .key.black.correct { background: #1e8e3e; }
   .key.white.wrong { background: #ffa69e; }
   .key.black.wrong { background: #c5221f; }
+
+  /* 曲の練習（お手本再生＋光る鍵盤）：右手＝オレンジ、左手＝紫 */
+  .song-panel {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: center;
+    gap: 8px 20px;
+  }
+  .song-info {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+  }
+  #songTitle { font-size: clamp(18px, 4.5vmin, 30px); font-weight: 700; }
+  #songStatus { font-size: 14px; color: var(--sub); font-variant-numeric: tabular-nums; min-height: 1.2em; }
+  .song-legend { font-size: 13px; color: var(--sub); display: flex; gap: 12px; }
+  .song-legend span::before {
+    content: '';
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    margin-right: 4px;
+    vertical-align: -1px;
+  }
+  .song-legend .lg-right::before { background: #ffb366; }
+  .song-legend .lg-left::before { background: #c3a3ff; }
+  #playBtn {
+    font-size: 20px;
+    min-height: 52px;
+    min-width: 128px;
+    padding: 0 22px;
+    border-radius: 26px;
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+  #playBtn.playing { background: #c5221f; border-color: #c5221f; }
+  #tempoLabel { min-width: 52px; font-variant-numeric: tabular-nums; }
+  .key.white.demo-left { background: #c3a3ff; }
+  .key.black.demo-left { background: #7e4fe0; }
+  .key.white.demo-right { background: #ffb366; }
+  .key.black.demo-right { background: #e5761a; }
 </style>
 </head>
 <body>
@@ -310,7 +355,17 @@
       <option value="piano">鍵盤ピアノ</option>
       <option value="nameQuiz">音名当てクイズ</option>
       <option value="keyQuiz">鍵盤の位置当てクイズ</option>
+      <option value="song">曲の練習</option>
     </select>
+  </div>
+  <div class="group" data-modes="song">
+    <span class="label">曲</span>
+    <select id="songSelect"></select>
+  </div>
+  <div class="group" data-modes="song">
+    <span class="label">テンポ</span>
+    <input type="range" id="tempoInput" min="30" max="200" step="1">
+    <span id="tempoLabel"></span>
   </div>
   <div class="group">
     <span class="label">音色</span>
@@ -325,7 +380,7 @@
     <span class="label">音量</span>
     <input type="range" id="volume" min="0" max="100" step="1">
   </div>
-  <div class="group" data-modes="piano keyQuiz">
+  <div class="group" data-modes="piano keyQuiz song">
     <span class="label">オクターブ</span>
     <button id="octDown" aria-label="オクターブを下げる">◀</button>
     <span class="octave-label" id="octLabel"></span>
@@ -343,7 +398,7 @@
       <option value="bass">ヘ音記号</option>
     </select>
   </div>
-  <div class="group" data-modes="piano">
+  <div class="group" data-modes="piano song">
     <span class="label">鍵盤の音名</span>
     <select id="labelSelect">
       <option value="none">なし</option>
@@ -351,7 +406,7 @@
       <option value="cde">CDE</option>
     </select>
   </div>
-  <div class="group" data-modes="piano keyQuiz">
+  <div class="group" data-modes="piano keyQuiz song">
     <span class="label">鍵盤の大きさ</span>
     <select id="sizeSelect">
       <option value="large">大</option>
@@ -359,7 +414,7 @@
       <option value="small">小</option>
     </select>
   </div>
-  <div class="group" data-modes="piano keyQuiz">
+  <div class="group" data-modes="piano keyQuiz song">
     <span class="label">段数</span>
     <select id="rowsSelect">
       <option value="auto">自動</option>
@@ -409,7 +464,7 @@
   </div>
 </div>
 
-<div class="display" id="display" data-modes="piano keyQuiz">
+<div class="display" id="display" data-modes="piano keyQuiz song">
   <div id="noteName" class="idle" data-modes="piano">♪</div>
   <svg id="staff" preserveAspectRatio="xMidYMid meet" aria-label="五線譜" data-modes="piano"></svg>
   <div id="noteSub" data-modes="piano">鍵盤をタップしてください</div>
@@ -418,9 +473,17 @@
     <div class="quiz-feedback" id="keyQuizFeedback"></div>
     <div class="quiz-score" id="keyQuizScore"></div>
   </div>
+  <div class="song-panel" data-modes="song">
+    <div class="song-info">
+      <div id="songTitle"></div>
+      <div id="songStatus"></div>
+      <div class="song-legend"><span class="lg-right">右手</span><span class="lg-left">左手</span></div>
+    </div>
+    <button id="playBtn">▶ 再生</button>
+  </div>
 </div>
 
-<div class="keyboard-wrap" data-modes="piano keyQuiz">
+<div class="keyboard-wrap" data-modes="piano keyQuiz song">
   <div class="keyboard" id="keyboard"></div>
 </div>
 
@@ -450,6 +513,8 @@ const settings = Object.assign({
   quizNames: 'doremi', // クイズの音名の表記：doremi / cde
   keyQuizKeys: 'white',  // 位置当てで出題する音：white（白鍵だけ）/ all（黒鍵も）
   keyQuizOctave: 'any',  // any（どのオクターブでも正解）/ exact（オクターブも当てる）
+  songId: null,          // 曲の練習で選んでいる曲
+  songTempos: {},        // 曲ごとに変えたテンポ（曲のid → ♩の数）
 }, loadJSON(STORAGE_KEY));
 
 function loadJSON(key) {
@@ -517,6 +582,7 @@ function buildOutput(c) {
 }
 
 function resetAudio() {
+  if (player.playing) stopPlayback();
   const old = ctx;
   ctx = null;
   master = null;
@@ -847,6 +913,7 @@ let rows = 1;
 let startOctave = 4;
 
 const displayMin = () => (settings.mode === 'keyQuiz' ? DISPLAY_MIN_KEYQUIZ : DISPLAY_MIN);
+let songOctave = null;   // 曲の練習で、オクターブボタンで動かした鍵盤の位置（null なら曲に合わせて自動）
 
 function calcOctaves() {
   const width = keyboardEl.clientWidth || window.innerWidth;
@@ -877,7 +944,11 @@ function renderKeyboard() {
   octaves = calcOctaves();
   rows = calcRows(octaves);
   const defaultStart = 4 - Math.floor((octaves - 1) / 2);
-  startOctave = clampStart(settings.startOctave ?? defaultStart);
+  // 曲の練習では、曲の音がなるべく多く鍵盤に入る位置に合わせる（オクターブを動かしても保存しない）
+  startOctave = settings.mode === 'song'
+    ? clampStart(songOctave ?? fitOctaveForSong())
+    : clampStart(settings.startOctave ?? defaultStart);
+  lit.clear();   // 鍵盤を作り直したので、光らせている状態を忘れる
 
   keyboardEl.innerHTML = '';
   if (rows === 2) {
@@ -889,6 +960,7 @@ function renderKeyboard() {
   updateLabels();
   sizeKeyboard();
   if (settings.mode === 'keyQuiz') nextKeyQuestion();   // 鍵盤の範囲が変わったので出題し直す
+  if (settings.mode === 'song' && !player.playing) showSong();   // 鍵盤に入りきらない音があるかを表示し直す
   document.getElementById('octLabel').textContent =
     rows === 2 ? 'C' + (startOctave - octaves) + '〜C' + (startOctave + octaves) : rangeLabel(startOctave);
 }
@@ -1030,6 +1102,7 @@ document.addEventListener('keyup', (e) => {
 function shiftOctave(delta) {
   const next = clampStart(startOctave + delta);
   if (next === startOctave) return;
+  if (settings.mode === 'song') { songOctave = next; renderKeyboard(); return; }
   settings.startOctave = next;
   saveSettings();
   renderKeyboard();
@@ -1105,6 +1178,8 @@ function applyMode() {
   setSustain(false);
   stopQuiz();
   stopKeyQuiz();
+  stopPlayback();
+  if (mode === 'song') songOctave = null;
   if (mode === 'nameQuiz') { releaseAll(); startQuiz(); return; }
   if (mode === 'keyQuiz') resetKeyQuizScore();
   renderKeyboard();   // 位置当てクイズのときは、この中で最初の問題を出す
@@ -1382,6 +1457,307 @@ function showOverlay(resume) {
 // iOSでは「指を離した（タップが完了した）」操作でないと音を開始できないことがあるので click で受ける
 overlay.addEventListener('click', hideOverlay);
 
+// ===== 曲のデータ =====
+// 書き方：「音名オクターブ:拍数」をスペースで区切って並べる。「|」は小節の区切り
+//   例）C4:1（ド4を1拍）  F#4:0.5（ファ♯4を半拍）  R:2（2拍休み）  C3+G3:4（ド3とソ3を同時に4拍）
+//   拍数は4分音符＝1。小節の長さが拍子と合わないと、開発者ツールのコンソールに注意が出る
+// 収録曲はすべて著作権の切れた曲。左手の伴奏はこのアプリ用に付けたもの
+const SONGS = [
+  {
+    id: 'twinkle',
+    title: 'きらきら星',
+    tempo: 100,
+    beatsPerBar: 4,
+    right: `C4:1 C4:1 G4:1 G4:1 | A4:1 A4:1 G4:2 | F4:1 F4:1 E4:1 E4:1 | D4:1 D4:1 C4:2 |
+            G4:1 G4:1 F4:1 F4:1 | E4:1 E4:1 D4:2 | G4:1 G4:1 F4:1 F4:1 | E4:1 E4:1 D4:2 |
+            C4:1 C4:1 G4:1 G4:1 | A4:1 A4:1 G4:2 | F4:1 F4:1 E4:1 E4:1 | D4:1 D4:1 C4:2`,
+    left: `C3:4 | F3:2 C3:2 | F3:2 C3:2 | G2:2 C3:2 |
+           C3:2 F3:2 | C3:2 G2:2 | C3:2 F3:2 | C3:2 G2:2 |
+           C3:4 | F3:2 C3:2 | F3:2 C3:2 | G2:2 C3:2`,
+  },
+  {
+    id: 'mary',
+    title: 'メリーさんのひつじ',
+    tempo: 100,
+    beatsPerBar: 4,
+    right: `E4:1 D4:1 C4:1 D4:1 | E4:1 E4:1 E4:2 | D4:1 D4:1 D4:2 | E4:1 G4:1 G4:2 |
+            E4:1 D4:1 C4:1 D4:1 | E4:1 E4:1 E4:1 E4:1 | D4:1 D4:1 E4:1 D4:1 | C4:4`,
+    left: `C3+G3:4 | C3+G3:4 | G2+G3:4 | C3+G3:4 |
+           C3+G3:4 | C3+G3:4 | G2+G3:4 | C3+G3:4`,
+  },
+  {
+    id: 'joy',
+    title: 'よろこびの歌（ベートーヴェン）',
+    tempo: 110,
+    beatsPerBar: 4,
+    right: `E4:1 E4:1 F4:1 G4:1 | G4:1 F4:1 E4:1 D4:1 | C4:1 C4:1 D4:1 E4:1 | E4:1.5 D4:0.5 D4:2 |
+            E4:1 E4:1 F4:1 G4:1 | G4:1 F4:1 E4:1 D4:1 | C4:1 C4:1 D4:1 E4:1 | D4:1.5 C4:0.5 C4:2 |
+            D4:1 D4:1 E4:1 C4:1 | D4:1 E4:0.5 F4:0.5 E4:1 C4:1 | D4:1 E4:0.5 F4:0.5 E4:1 D4:1 | C4:1 D4:1 G3:2 |
+            E4:1 E4:1 F4:1 G4:1 | G4:1 F4:1 E4:1 D4:1 | C4:1 C4:1 D4:1 E4:1 | D4:1.5 C4:0.5 C4:2`,
+    left: `C3:4 | G2:4 | C3:4 | G2:4 |
+           C3:4 | G2:4 | C3:4 | G2:2 C3:2 |
+           G2:2 C3:2 | G2:2 C3:2 | G2:4 | C3:2 G2:2 |
+           C3:4 | G2:4 | C3:4 | G2:2 C3:2`,
+  },
+];
+
+const NOTE_PC = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+function parseNote(text) {
+  const m = /^([A-G])(#?)(\d)$/.exec(text);
+  return m ? 12 * (Number(m[3]) + 1) + NOTE_PC[m[1]] + (m[2] ? 1 : 0) : null;
+}
+
+// 片手分の文字列を、音の並び { midis, beat（何拍目から）, dur（拍数）, hand } にする
+function parsePart(song, hand) {
+  const events = [];
+  let beat = 0;
+  let barStart = 0;
+  let bar = 1;
+  const warn = (msg) => console.warn(`曲データ「${song.title}」${hand === 'right' ? '右手' : '左手'} ${bar}小節目：${msg}`);
+  const checkBar = () => {
+    if (Math.abs(beat - barStart - song.beatsPerBar) > 1e-6) warn(`小節の長さが${beat - barStart}拍です`);
+  };
+  for (const tok of song[hand].trim().split(/\s+/)) {
+    if (tok === '|') { checkBar(); barStart = beat; bar++; continue; }
+    const [pitch, durText] = tok.split(':');
+    const dur = Number(durText);
+    if (!(dur > 0)) { warn(`「${tok}」の拍数が読めません`); continue; }
+    if (pitch !== 'R') {
+      const midis = pitch.split('+').map(parseNote);
+      if (midis.includes(null)) warn(`「${tok}」の音名が読めません`);
+      else events.push({ midis, beat, dur, hand });
+    }
+    beat += dur;
+  }
+  checkBar();
+  return { events, beats: beat };
+}
+
+const parsedSongs = new Map();
+function getSong(id) {
+  const song = SONGS.find((s) => s.id === id) || SONGS[0];
+  if (!parsedSongs.has(song.id)) {
+    const r = parsePart(song, 'right');
+    const l = parsePart(song, 'left');
+    const totalBeats = Math.max(r.beats, l.beats);
+    parsedSongs.set(song.id, {
+      ...song,
+      events: [...r.events, ...l.events].sort((a, b) => a.beat - b.beat),
+      totalBeats,
+      bars: Math.ceil(totalBeats / song.beatsPerBar - 1e-6),
+    });
+  }
+  return parsedSongs.get(song.id);
+}
+
+const currentSong = () => getSong(settings.songId);
+const songTempo = (song) => settings.songTempos[song.id] || song.tempo;
+
+// 鍵盤の位置（下段の左端のオクターブ）を、曲の音がいちばん多く入る位置にする
+// 2段のときは、右手の音は下段、左手の音は上段に入っている数で比べる
+function fitOctaveForSong() {
+  const events = currentSong().events;
+  const inRange = (m, lowOct) => m >= 12 * (lowOct + 1) && m <= 12 * (lowOct + 1 + octaves);
+  let best = null;
+  let bestCount = -1;
+  for (let o = 1; o <= 7; o++) {
+    if (clampStart(o) !== o) continue;
+    let count = 0;
+    for (const ev of events) {
+      for (const m of ev.midis) {
+        if (rows === 2) count += inRange(m, ev.hand === 'right' ? o : o - octaves) ? 1 : 0;
+        else count += inRange(m, o) ? 1 : 0;
+      }
+    }
+    if (count > bestCount) { best = o; bestCount = count; }
+  }
+  return best ?? 4;
+}
+
+// ===== お手本再生＋光る鍵盤 =====
+// 音は Web Audio API の時刻で少し先まで予約して鳴らす（タイマーのずれの影響を受けないように）
+const SCHEDULE_AHEAD = 0.12;   // 何秒先まで予約するか
+const player = {
+  playing: false,
+  song: null,
+  tempo: 100,
+  idx: 0,              // 次に予約する音の番号
+  anchorTime: 0,       // テンポの基準：この時刻に anchorBeat 拍目
+  anchorBeat: 0,
+  scheduled: [],       // 予約した音（停止したときに消すため）
+  timer: null,
+  raf: null,
+  lastStatus: '',
+};
+const lit = new Map();   // 光らせている鍵盤：midi → 'right' / 'left'
+
+const beatToTime = (beat) => player.anchorTime + (beat - player.anchorBeat) * 60 / player.tempo;
+const timeToBeat = (time) => player.anchorBeat + (time - player.anchorTime) * player.tempo / 60;
+
+function startPlayback() {
+  initAudio();
+  const song = currentSong();
+  Object.assign(player, {
+    playing: true,
+    song,
+    tempo: songTempo(song),
+    idx: 0,
+    anchorTime: ctx.currentTime + 0.15,
+    anchorBeat: 0,
+    scheduled: [],
+  });
+  playBtn.textContent = '■ 停止';
+  playBtn.classList.add('playing');
+  schedule();
+  player.timer = setInterval(schedule, 25);
+  player.raf = requestAnimationFrame(drawPlayback);
+}
+
+function stopPlayback() {
+  if (!player.playing) return;
+  player.playing = false;
+  clearInterval(player.timer);
+  cancelAnimationFrame(player.raf);
+  // 予約済みの音・鳴っている音をすぐに消す
+  if (ctx) {
+    const now = ctx.currentTime;
+    for (const v of player.scheduled) {
+      if (v.end <= now) continue;
+      const g = v.out.gain;
+      g.cancelScheduledValues(now);
+      g.setValueAtTime(g.value, now);
+      g.setTargetAtTime(0, now, 0.02);
+      v.oscs.forEach((o) => { try { o.stop(now + 0.2); } catch (e) {} });
+    }
+  }
+  player.scheduled = [];
+  setLit(new Map());
+  playBtn.textContent = '▶ 再生';
+  playBtn.classList.remove('playing');
+  showSong();
+}
+
+function schedule() {
+  if (!player.playing || !ctx) return;
+  const now = ctx.currentTime;
+  const events = player.song.events;
+  while (player.idx < events.length && beatToTime(events[player.idx].beat) < now + SCHEDULE_AHEAD) {
+    const ev = events[player.idx++];
+    const t = Math.max(now, beatToTime(ev.beat));
+    // 同じ音が続いても聞き分けられるよう、少しだけ短く鳴らす
+    const dur = Math.max(0.05, ev.dur * 60 / player.tempo - 0.03);
+    ev.midis.forEach((m) => playScheduled(m, t, dur));
+  }
+  player.scheduled = player.scheduled.filter((v) => v.end > now);
+  if (player.idx >= events.length && now > beatToTime(player.song.totalBeats) + 0.3) stopPlayback();
+}
+
+function playScheduled(midi, t, dur) {
+  const v = TONES[settings.tone](midiToFreq(midi), t);
+  v.out.connect(master);
+  const end = t + dur;
+  v.out.gain.setValueAtTime(1, end);
+  v.out.gain.setTargetAtTime(0, end, v.release);
+  const stopAt = Math.min(end + v.release * 8, t + v.maxDur);
+  v.oscs.forEach((o) => o.stop(stopAt));
+  v.oscs[0].onended = () => v.out.disconnect();
+  player.scheduled.push({ out: v.out, oscs: v.oscs, end: stopAt });
+}
+
+// 画面の更新：いま鳴っている音の鍵盤を光らせ、小節を表示する
+function drawPlayback() {
+  if (!player.playing) return;
+  // スピーカーから実際に音が出るまでの遅れの分だけ、表示を遅らせる
+  const latency = ctx.outputLatency || ctx.baseLatency || 0;
+  const beat = timeToBeat(ctx.currentTime - latency);
+  const next = new Map();
+  for (const ev of player.song.events) {
+    if (ev.beat > beat) break;
+    // 同じ音が続くときに光り直して見えるよう、音の長さの9割だけ光らせる
+    if (beat < ev.beat + ev.dur * 0.9) {
+      for (const m of ev.midis) if (next.get(m) !== 'right') next.set(m, ev.hand);
+    }
+  }
+  setLit(next);
+  const bar = Math.min(player.song.bars, Math.max(1, Math.floor(beat / player.song.beatsPerBar) + 1));
+  setSongStatus(`${bar} / ${player.song.bars} 小節　♩=${player.tempo}`);
+  player.raf = requestAnimationFrame(drawPlayback);
+}
+
+function setLit(next) {
+  const apply = (m, hand) => {
+    keyboardEl.querySelectorAll('[data-midi="' + m + '"]').forEach((el) => {
+      el.classList.toggle('demo-right', hand === 'right');
+      el.classList.toggle('demo-left', hand === 'left');
+    });
+  };
+  for (const m of lit.keys()) if (!next.has(m)) apply(m, null);
+  for (const [m, hand] of next) if (lit.get(m) !== hand) apply(m, hand);
+  lit.clear();
+  for (const [m, hand] of next) lit.set(m, hand);
+}
+
+function setSongStatus(text) {
+  if (text === player.lastStatus) return;
+  player.lastStatus = text;
+  document.getElementById('songStatus').textContent = text;
+}
+
+// 停止中の表示：曲名・小節数・テンポ。鍵盤に入りきらない音があれば知らせる
+function showSong() {
+  const song = currentSong();
+  document.getElementById('songTitle').textContent = song.title;
+  songSelect.value = song.id;
+  tempoInput.value = songTempo(song);
+  document.getElementById('tempoLabel').textContent = '♩=' + songTempo(song);
+  const keys = new Set([...keyboardEl.querySelectorAll('.key')].map((el) => Number(el.dataset.midi)));
+  const outside = keys.size > 0 && song.events.some((e) => e.midis.some((m) => !keys.has(m)));
+  setSongStatus(`全${song.bars}小節　♩=${songTempo(song)}` + (outside ? '　※鍵盤に入りきらない音があります' : ''));
+}
+
+const songSelect = document.getElementById('songSelect');
+const tempoInput = document.getElementById('tempoInput');
+const playBtn = document.getElementById('playBtn');
+for (const song of SONGS) {
+  const opt = document.createElement('option');
+  opt.value = song.id;
+  opt.textContent = song.title;
+  songSelect.appendChild(opt);
+}
+
+songSelect.addEventListener('change', () => {
+  stopPlayback();
+  settings.songId = songSelect.value;
+  saveSettings();
+  songOctave = null;
+  renderKeyboard();
+  showSong();
+  songSelect.blur();
+});
+
+playBtn.addEventListener('click', () => {
+  if (player.playing) stopPlayback();
+  else startPlayback();
+});
+
+// テンポは再生中でも変えられる（いまの位置を基準にして、そこから先の速さを変える）
+tempoInput.addEventListener('input', () => {
+  const song = currentSong();
+  const tempo = Number(tempoInput.value);
+  if (tempo === song.tempo) delete settings.songTempos[song.id];
+  else settings.songTempos[song.id] = tempo;
+  saveSettings();
+  document.getElementById('tempoLabel').textContent = '♩=' + tempo;
+  if (player.playing && ctx) {
+    const now = ctx.currentTime;
+    player.anchorBeat = timeToBeat(now);
+    player.anchorTime = now;
+    player.tempo = tempo;
+  } else {
+    showSong();
+  }
+});
+
 // ダブルタップでの拡大を止める予備の処理（iOSではCSSだけでは止めきれないことがある。五線譜のSVGの上など）
 // 短い間隔の2回目のタップはブラウザの動作を止め、ボタンの上ならボタンの操作だけ行う
 let lastTouchEnd = 0;
@@ -1406,7 +1782,7 @@ for (const type of ['pointerup', 'touchend', 'click', 'keydown']) {
 
 // 画面を離れたら鳴っている音を止める。戻ってきたとき音が止まっていたら再開用の画面を出す
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) { setSustain(false); releaseAll(); return; }
+  if (document.hidden) { setSustain(false); releaseAll(); stopPlayback(); return; }
   if (audioStarted && ctx && ctx.state !== 'running') showOverlay(true);
 });
 
