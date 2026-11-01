@@ -352,6 +352,11 @@
   .j-good { color: #4fa3ff; }
   .j-miss { color: #ff8a80; }
   .j-info { color: var(--sub); font-weight: 400; font-size: 14px; }
+  /* 音の長さの判定（タイミングの判定の下に小さく出す） */
+  #songLength { font-size: 14px; font-weight: 700; min-height: 1.3em; font-variant-numeric: tabular-nums; }
+  #songLength.pop { animation: judge-pop .25s ease-out; }
+  .len-just { color: #5fd38a; }
+  .len-off { color: #ffb366; }
   #calibLabel { font-size: 13px; color: var(--sub); font-variant-numeric: tabular-nums; }
   /* タイミング調整の画面 */
   #calibOverlay { z-index: 11; }
@@ -551,6 +556,7 @@
       <div id="songTitle"></div>
       <div id="songStatus"></div>
       <div id="songJudge"></div>
+      <div id="songLength" hidden></div>
       <div class="song-legend"><span class="lg-right">右手</span><span class="lg-left">左手</span></div>
     </div>
     <div class="hand-select" id="handSelect" role="group" aria-label="練習する手">
@@ -850,10 +856,12 @@ function noteOn(midi) {
   if (settings.mode === 'song') songNoteOn(midi);
 }
 
-function noteOff(midi) {
+// perfMs：離した瞬間の時刻（イベントの timeStamp）。音の長さの判定に使う
+function noteOff(midi, perfMs) {
   const n = (pressCount.get(midi) || 0) - 1;
   if (n > 0) { pressCount.set(midi, n); return; }
   pressCount.delete(midi);
+  if (settings.mode === 'song') songLengthRelease(midi, perfMs ?? performance.now());
   setKeyActive(midi, false);
   if (!sustain) stopVoice(midi);
   updateDisplay();
@@ -1155,7 +1163,7 @@ keyboardEl.addEventListener('pointermove', (e) => {
   const midi = midiAt(e.clientX, e.clientY);
   const prev = pointerNotes.get(e.pointerId);
   if (midi === prev) return;
-  if (prev !== null) noteOff(prev);
+  if (prev !== null) noteOff(prev, eventPerfTime(e));
   pointerNotes.set(e.pointerId, midi);
   if (midi !== null) noteOn(midi);
 });
@@ -1164,7 +1172,7 @@ function endPointer(e) {
   if (!pointerNotes.has(e.pointerId)) return;
   const midi = pointerNotes.get(e.pointerId);
   pointerNotes.delete(e.pointerId);
-  if (midi !== null) noteOff(midi);
+  if (midi !== null) noteOff(midi, eventPerfTime(e));
 }
 keyboardEl.addEventListener('pointerup', endPointer);
 keyboardEl.addEventListener('pointercancel', endPointer);
@@ -1199,7 +1207,7 @@ document.addEventListener('keyup', (e) => {
   if (!keyNotes.has(e.code)) return;
   const midi = keyNotes.get(e.code);
   keyNotes.delete(e.code);
-  noteOff(midi);
+  noteOff(midi, eventPerfTime(e));
 });
 
 // ===== 操作パネル =====
@@ -1751,6 +1759,9 @@ const player = {
   lastPassAcc: null,   // 前の回の正確さ
   showAfter: 0,        // 次に弾く鍵盤を光らせ始める時刻（同じ鍵盤が続くときに光り直して見えるように）
   result: null,        // 最後の回の結果（止まったときに表示）
+  // 音の長さの判定
+  holding: new Map(),  // 押している鍵盤 → { start: 押した時刻（ミリ秒）, expected: 楽譜の長さ（秒）}
+  lengths: null,       // 今回の音の長さの判定の数 { just, short, long }
 };
 const lit = new Map();   // 光らせている鍵盤：midi → 'right' / 'left'
 
@@ -1793,8 +1804,13 @@ function buildSteps(events, hand) {
   for (const ev of events) {
     if (ev.hand !== hand) continue;
     const last = steps[steps.length - 1];
-    if (last && Math.abs(last.beat - ev.beat) < 1e-6) last.midis.push(...ev.midis);
-    else steps.push({ beat: ev.beat, midis: [...ev.midis] });
+    // durs：それぞれの音の長さ（拍）。音の長さの判定に使う
+    if (last && Math.abs(last.beat - ev.beat) < 1e-6) {
+      last.midis.push(...ev.midis);
+      last.durs.push(...ev.midis.map(() => ev.dur));
+    } else {
+      steps.push({ beat: ev.beat, midis: [...ev.midis], durs: ev.midis.map(() => ev.dur) });
+    }
   }
   return steps;
 }
@@ -1842,10 +1858,13 @@ function startPlayback() {
     showAfter: 0,
     result: null,
     counting: judge,
+    holding: new Map(),
+    lengths: { just: 0, short: 0, long: 0 },
   });
   if (judge) {
     for (let i = 0; i < song.beatsPerBar; i++) playClick(beatToTime(start - song.beatsPerBar + i), i === 0);
     setJudgeText('', '');
+    setLengthText('', '');
   }
   playBtn.textContent = '■ 停止';
   playBtn.classList.add('playing');
@@ -1857,6 +1876,14 @@ function startPlayback() {
 // finished：曲の最後まで行って止まったとき
 function stopPlayback(finished = false) {
   if (!player.playing) return;
+  // 最後まで弾いて止まったとき、まだ押している音は、いまの時点の長さで判定する（短めにはしない）
+  if (finished && player.judge) {
+    for (const [, h] of player.holding) {
+      const grade = lengthGrade((performance.now() - h.start) / 1000, h.expected);
+      player.lengths[grade === 'short' ? 'just' : grade]++;
+    }
+  }
+  player.holding.clear();
   player.playing = false;
   clearInterval(player.timer);
   cancelAnimationFrame(player.raf);
@@ -1884,6 +1911,8 @@ function stopPlayback(finished = false) {
     const r = player.result;
     setSongStatus(`パーフェクト ${r.perfect}　グレート ${r.great}　グッド ${r.good}　ミス ${r.miss}`);
     setJudgeText(`正確さ ${r.acc}%`, r.newRecord ? 'j-perfect' : '', r.newRecord ? '新記録！' : r.best !== undefined ? `最高 ${r.best}%` : '');
+    const l = player.lengths;
+    if (l.just + l.short + l.long) setLengthText(`音の長さ　ちょうど ${l.just}　短め ${l.short}　長め ${l.long}`, 'j-info');
   }
 }
 
@@ -1973,7 +2002,7 @@ function judgeStep(g) {
   const n = player.steps.length;
   if (!player.judge || !n || (!player.loop && g >= n)) return undefined;
   const s = player.steps[g % n];
-  return { beat: s.beat + Math.floor(g / n) * player.len, midis: s.midis };
+  return { beat: s.beat + Math.floor(g / n) * player.len, midis: s.midis, durs: s.durs };
 }
 function judgeState(g) {
   if (!player.jstate.has(g)) player.jstate.set(g, { pressed: new Set(), missed: false });
@@ -2062,6 +2091,37 @@ function setJudgeText(text, cls, sub = '', pop = false) {
   }
 }
 
+// ===== 音の長さの判定（判定つき） =====
+// 押していた時間を、楽譜の長さ（秒）と比べる。タイミングの判定とは別に出し、正確さ（％）には入れない
+// ピアノは音の長さの許容が広いので、ゆるめにする：
+//   短め＝楽譜の長さの半分より短く、かつ0.1秒以上足りない
+//   長め＝楽譜の長さの1.3倍より長く、かつ0.15秒以上はみ出す
+// 長さは「押した瞬間と離した瞬間の差」なので、端末の遅れ（タイミング調整の値）は差し引かなくてよい
+function lengthGrade(held, expected) {
+  if (held < expected * 0.5 && expected - held > 0.1) return 'short';
+  if (held > expected * 1.3 && held - expected > 0.15) return 'long';
+  return 'just';
+}
+const LENGTH_NAMES = { just: 'ちょうど', short: '短め', long: '長め' };
+
+function songLengthRelease(midi, perfMs) {
+  if (!player.playing || !player.judge) return;
+  const h = player.holding.get(midi);
+  if (!h) return;
+  player.holding.delete(midi);
+  const grade = lengthGrade((perfMs - h.start) / 1000, h.expected);
+  player.lengths[grade]++;
+  setLengthText(`長さ ${LENGTH_NAMES[grade]}`, grade === 'just' ? 'len-just' : 'len-off', true);
+}
+
+function setLengthText(text, cls, pop = false) {
+  const el = document.getElementById('songLength');
+  el.className = '';
+  if (pop) void el.offsetWidth;   // アニメーションを最初からやり直す
+  el.className = cls + (pop ? ' pop' : '');
+  el.textContent = text;
+}
+
 // 判定つきで鍵盤が押されたとき（指が触れた瞬間・PCのキーを押した瞬間だけ。指を滑らせて移った鍵盤は判定しない）
 // いちばん近い時刻の「弾くところ」の音として判定する。どれにも当たらなければミス
 function songJudgePress(midi, perfMs) {
@@ -2106,6 +2166,9 @@ function songJudgePress(midi, perfMs) {
   judgeState(best.g).pressed.add(best.m);
   addJudge(grade);
   showJudge(grade, best.delta);
+  // 音の長さ：離したときに、押していた時間を楽譜の長さと比べる（ミスの音は判定しない）
+  const st = judgeStep(best.g);
+  player.holding.set(midi, { start: perfMs, expected: st.durs[st.midis.indexOf(best.m)] * 60 / player.tempo });
   player.showAfter = performance.now() + 120;
   judgeUpdate();
 }
@@ -2241,6 +2304,9 @@ function showSong() {
   // 判定つきのときだけ判定の行を出す。止まっているときは最高記録を出す
   const judge = hand !== 'both' && settings.songAdvance === 'judge';
   const judgeEl = document.getElementById('songJudge');
+  // 判定つきのときは、色の見本（右手・左手）の代わりに音の長さの判定の行を出す（スマホ横向きで高さが増えないように）
+  document.getElementById('songLength').hidden = !judge;
+  document.querySelector('.song-legend').hidden = judge;
   if (judge === judgeEl.hasAttribute('data-off')) {
     judgeEl.toggleAttribute('data-off', !judge);
     requestAnimationFrame(refitKeyboard);   // 表示エリアの高さが変わるので、鍵盤の大きさを合わせ直す
@@ -2248,6 +2314,7 @@ function showSong() {
   if (judge) {
     const best = songRecords[songRecordKey()];
     setJudgeText(best !== undefined ? `最高記録 ${best}%` : '記録なし', 'j-info');
+    setLengthText('音の長さも判定します', 'j-info');
   }
   document.getElementById('calibLabel').textContent = calibText(settings.timingOffset);
 }
