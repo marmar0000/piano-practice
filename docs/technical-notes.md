@@ -165,3 +165,12 @@
 - 「モード」（鍵盤ピアノ／音名当てクイズ／鍵盤の位置当てクイズ）で画面を切り替える。画面の部品や操作パネルの項目に `data-modes="piano keyQuiz"` のように表示するモードを書いておき、applyMode() で hidden を切り替える
 - renderStaff(svg, 音のリスト, 譜表の種類, オプション) は描画先と譜表を引数で受け取るので、鍵盤ピアノの表示とクイズで共用している（オプション：音符を薄く・音符の色・表示範囲）
 - 検索エンジンに載らないよう `<meta name="robots" content="noindex, nofollow">` を入れている。新しいHTMLページを作るときも同じ指定を入れる
+
+## 公開（GitHub Pages）で困ったとき
+- 公開は `claude/piano-practice-app-rdq7ps` ブランチから GitHub Pages で行っている（push するたびに「pages build and deployment」が自動で動く）
+- 公開できたかは、リポジトリの「Actions」タブの「pages build and deployment」で見る。「build」が成功しても「deploy」が失敗していることがある
+- 2026-11-01 にあったこと：1つ前の公開が GitHub 側で「途中」のまま止まり、その後の公開が「in progress deployment」と断られ続けた。実機には古い版が出ていた
+  - 「Re-run jobs」でのやり直しは、順番待ちのまま動かなかった（GitHub側の不具合とみられる）
+  - Settings → Pages で公開元のブランチを付け直すと新しく動いた。ただし、付け直すときに前の公開が終わる前に戻すと、また断られる（1〜2分待ってから戻す）
+  - 新しく push すると、新しい公開が動く
+- 実機では開始画面の下の「版 ○○」（APP_VERSION）で、新しい版が出ているかを確かめる
