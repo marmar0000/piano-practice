@@ -89,7 +89,8 @@
 
   /* 音名表示エリア */
   .display {
-    flex: 1;
+    /* 中身より小さくはしない（画面に入りきらないときは、重ならずに画面全体をスクロールできるように） */
+    flex: 1 0 auto;
     min-height: 60px;
     display: flex;
     flex-direction: column;
@@ -299,7 +300,7 @@
     flex-wrap: wrap;
     align-items: center;
     justify-content: center;
-    gap: 8px 20px;
+    gap: 8px 14px;
   }
   .song-info {
     display: flex;
@@ -334,13 +335,40 @@
   #playBtn.playing { background: #c5221f; border-color: #c5221f; }
   #songHint { font-size: 13px; color: var(--sub); text-align: center; min-height: 1.2em; }
   .hand-select { display: flex; }
-  .hand-select button { min-width: 64px; border-radius: 0; margin-left: -1px; }
+  .hand-select button { min-width: 56px; border-radius: 0; margin-left: -1px; }
   .hand-select button:first-child { border-radius: 8px 0 0 8px; margin-left: 0; }
   .hand-select button:last-child { border-radius: 0 8px 8px 0; }
   .hand-select button.on { background: var(--accent); border-color: var(--accent); color: #fff; position: relative; }
-  .loop-row { display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--sub); }
+  .loop-row { display: flex; align-items: center; gap: 4px; font-size: 14px; color: var(--sub); }
   .loop-row select { min-width: 56px; }
   #loopBtn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  #songJudge { font-size: clamp(17px, 4vmin, 24px); font-weight: 700; min-height: 1.3em; font-variant-numeric: tabular-nums; }
+  #songJudge[data-off] { display: none; }
+  #songJudge.pop { animation: judge-pop .25s ease-out; }
+  @keyframes judge-pop { from { transform: scale(1.25); } to { transform: scale(1); } }
+  #songJudge .sub { font-size: 14px; font-weight: 400; color: var(--sub); margin-left: 6px; }
+  .j-perfect { color: #ffd54f; }
+  .j-great { color: #5fd38a; }
+  .j-good { color: #4fa3ff; }
+  .j-miss { color: #ff8a80; }
+  .j-info { color: var(--sub); font-weight: 400; font-size: 14px; }
+  #calibLabel { font-size: 13px; color: var(--sub); font-variant-numeric: tabular-nums; }
+  /* タイミング調整の画面 */
+  #calibOverlay { z-index: 11; }
+  .calib-text { max-width: 440px; font-size: 15px; line-height: 1.6; color: var(--sub); min-height: 3.2em; }
+  .calib-pad, .calib-pad:active {
+    width: min(70vw, 70vh, 320px);
+    height: min(70vw, 40vh, 220px);
+    border-radius: 24px;
+    font-size: 26px;
+    font-weight: 700;
+    background: #3a4256;
+    touch-action: none;
+  }
+  .calib-pad.flash { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .calib-progress { font-size: 16px; min-height: 1.3em; font-variant-numeric: tabular-nums; }
+  .calib-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+  .calib-actions button[hidden] { display: none; }
   #tempoLabel { min-width: 52px; font-variant-numeric: tabular-nums; }
   .key.white.demo-left { background: #c3a3ff; }
   .key.black.demo-left { background: #7e4fe0; }
@@ -357,6 +385,18 @@
     音が出ないときは：<br>
     ・消音（マナーモード）をオフにしてください<br>
     ・本体の音量を上げてください
+  </div>
+</div>
+
+<div class="overlay hidden" id="calibOverlay">
+  <h1>タイミング調整</h1>
+  <div class="calib-text" id="calibText"></div>
+  <button class="calib-pad" id="calibPad">タップ</button>
+  <div class="calib-progress" id="calibProgress"></div>
+  <div class="calib-actions">
+    <button id="calibSave">この値を使う</button>
+    <button id="calibRetry">やり直す</button>
+    <button id="calibCancel">やめる</button>
   </div>
 </div>
 
@@ -379,6 +419,7 @@
     <select id="songAdvanceSelect">
       <option value="wait">弾くまで待つ</option>
       <option value="tempo">テンポ通り</option>
+      <option value="judge">判定つき</option>
     </select>
   </div>
   <div class="group" data-modes="song" data-practice-only>
@@ -387,6 +428,11 @@
       <option value="play">自動で鳴らす</option>
       <option value="mute">鳴らさない</option>
     </select>
+  </div>
+  <div class="group" data-modes="song" data-judge-only>
+    <span class="label">タイミング調整</span>
+    <button id="calibBtn">調整する</button>
+    <span id="calibLabel"></span>
   </div>
   <div class="group" data-modes="song">
     <span class="label">テンポ</span>
@@ -504,6 +550,7 @@
     <div class="song-info">
       <div id="songTitle"></div>
       <div id="songStatus"></div>
+      <div id="songJudge"></div>
       <div class="song-legend"><span class="lg-right">右手</span><span class="lg-left">左手</span></div>
     </div>
     <div class="hand-select" id="handSelect" role="group" aria-label="練習する手">
@@ -556,10 +603,11 @@ const settings = Object.assign({
   songId: null,          // 曲の練習で選んでいる曲
   songTempos: {},        // 曲ごとに変えたテンポ（曲のid → ♩の数）
   songHand: 'both',      // 練習する手：both（両手＝お手本を聴く）/ right / left
-  songAdvance: 'wait',   // 片手練習の進み方：wait（弾くまで待つ）/ tempo（テンポ通り）
+  songAdvance: 'wait',   // 片手練習の進み方：wait（弾くまで待つ）/ tempo（テンポ通り）/ judge（判定つき）
   songOther: 'play',     // 片手練習のもう片方の手：play（自動で鳴らす）/ mute（鳴らさない）
   songRanges: {},        // 曲ごとの練習する区間（曲のid → { from, to }：小節の番号。全体なら記録しない）
   songLoop: false,       // 区間をくり返すか
+  timingOffset: 0,       // タイミング調整：この端末で、押してから判定に届くまでの遅れ（秒）。判定のときに差し引く
   controlsOpen: null,    // 設定を開いているか（null なら画面の大きさで決める）
 }, loadJSON(STORAGE_KEY));
 
@@ -1099,6 +1147,7 @@ keyboardEl.addEventListener('pointerdown', (e) => {
   pointerNotes.set(e.pointerId, midi);
   noteOn(midi);
   if (settings.mode === 'keyQuiz') answerKeyQuiz(midi);
+  if (settings.mode === 'song') songJudgePress(midi, eventPerfTime(e));
 });
 
 keyboardEl.addEventListener('pointermove', (e) => {
@@ -1131,6 +1180,7 @@ const keyNotes = new Map();   // code -> midi
 document.addEventListener('keydown', (e) => {
   if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT') return;
+  if (calib.open) { calibKeydown(e); return; }
   if (settings.mode === 'nameQuiz') { quizKeydown(e); return; }
   if (e.code === 'Space') { e.preventDefault(); if (settings.mode === 'piano') setSustain(true); return; }
   if (e.code === 'KeyZ') { shiftOctave(-1); return; }
@@ -1141,6 +1191,7 @@ document.addEventListener('keydown', (e) => {
   keyNotes.set(e.code, midi);
   noteOn(midi);
   if (settings.mode === 'keyQuiz') answerKeyQuiz(midi);
+  if (settings.mode === 'song') songJudgePress(midi, eventPerfTime(e));
 });
 
 document.addEventListener('keyup', (e) => {
@@ -1223,12 +1274,20 @@ modeSelect.addEventListener('change', () => {
   modeSelect.blur();
 });
 
-function applyMode() {
+// data-modes に書いたモードのときだけ出す。片手練習・判定つきのときだけ出す項目もある
+function updateVisibility() {
   const mode = settings.mode;
+  const judge = settings.songHand !== 'both' && settings.songAdvance === 'judge';
   document.querySelectorAll('[data-modes]').forEach((el) => {
     el.hidden = !el.dataset.modes.split(' ').includes(mode) ||
-      ('practiceOnly' in el.dataset && settings.songHand === 'both');   // 片手練習のときだけ出す項目
+      ('practiceOnly' in el.dataset && settings.songHand === 'both') ||
+      ('judgeOnly' in el.dataset && !judge);
   });
+}
+
+function applyMode() {
+  const mode = settings.mode;
+  updateVisibility();
   setSustain(false);
   stopQuiz();
   stopKeyQuiz();
@@ -1683,6 +1742,15 @@ const player = {
   lastPassMisses: null,  // 前の回のミスの数
   pressed: new Set(),  // 次に弾くところのうち、もう押した音（和音は全部押したら進む）
   misses: 0,
+  // 判定つき（タイミングを判定する）
+  judge: false,
+  g: 0,                // まだ終わっていない最初の「弾くところ」の通し番号（くり返しの回をまたいで数える）
+  jstate: new Map(),   // 通し番号 → { pressed: Set（押した音）, missed: true（判定の幅を過ぎた）}
+  counts: null,        // 今回の判定の数 { perfect, great, good, miss }
+  passStart: null,     // いまの回が始まったときの counts
+  lastPassAcc: null,   // 前の回の正確さ
+  showAfter: 0,        // 次に弾く鍵盤を光らせ始める時刻（同じ鍵盤が続くときに光り直して見えるように）
+  result: null,        // 最後の回の結果（止まったときに表示）
 };
 const lit = new Map();   // 光らせている鍵盤：midi → 'right' / 'left'
 
@@ -1712,11 +1780,11 @@ function peekBeat() {
   return player.events[player.idx].beat + player.pass * player.len;
 }
 
-// いまの拍。弾くまで待つときは、次に弾くところで止まる
+// いまの拍。弾くまで待つときは次に弾くところで、判定つきのときはまだ弾いていない音の判定の幅の終わりで止まる
 function playbackBeat(time) {
   const beat = timeToBeat(time);
-  const step = currentStep();
-  return step && beat > step.beat ? step.beat : beat;
+  const cap = player.judge ? judgeCapBeat() : currentStep()?.beat;
+  return cap !== undefined && beat > cap ? cap : beat;
 }
 
 // 練習する手の音を、同じ拍ごとにまとめる
@@ -1736,6 +1804,7 @@ function startPlayback() {
   const song = currentSong();
   const practice = settings.songHand === 'both' ? null : settings.songHand;
   const wait = !!practice && settings.songAdvance === 'wait';
+  const judge = !!practice && settings.songAdvance === 'judge';
   const range = songRange(song);
   const { start, end, events } = rangeEvents(song, range);
   Object.assign(player, {
@@ -1750,20 +1819,34 @@ function startPlayback() {
     whole: range.whole,
     idx: 0,
     pass: 0,
+    // 判定つきのときは、1小節分のカウントを入れてから始める
     anchorTime: ctx.currentTime + 0.15,
-    anchorBeat: start,
+    anchorBeat: judge ? start - song.beatsPerBar : start,
     scheduled: [],
     practice,
     wait,
+    judge,
     muteOther: !!practice && settings.songOther === 'mute',
-    steps: wait ? buildSteps(events, practice) : [],
+    steps: wait || judge ? buildSteps(events, practice) : [],
     stepIdx: 0,
     stepPass: 0,
     passMissStart: 0,
     lastPassMisses: null,
     pressed: new Set(),
     misses: 0,
+    g: 0,
+    jstate: new Map(),
+    counts: { perfect: 0, great: 0, good: 0, miss: 0 },
+    passStart: { perfect: 0, great: 0, good: 0, miss: 0 },
+    lastPassAcc: null,
+    showAfter: 0,
+    result: null,
+    counting: judge,
   });
+  if (judge) {
+    for (let i = 0; i < song.beatsPerBar; i++) playClick(beatToTime(start - song.beatsPerBar + i), i === 0);
+    setJudgeText('', '');
+  }
   playBtn.textContent = '■ 停止';
   playBtn.classList.add('playing');
   schedule();
@@ -1797,14 +1880,22 @@ function stopPlayback(finished = false) {
   if (finished && player.wait) {
     setSongStatus(`${player.whole ? '最後まで' : '区間を'}弾けました！　ミス ${player.misses}回`);
   }
+  if (finished && player.judge && player.result) {
+    const r = player.result;
+    setSongStatus(`パーフェクト ${r.perfect}　グレート ${r.great}　グッド ${r.good}　ミス ${r.miss}`);
+    setJudgeText(`正確さ ${r.acc}%`, r.newRecord ? 'j-perfect' : '', r.newRecord ? '新記録！' : r.best !== undefined ? `最高 ${r.best}%` : '');
+  }
 }
 
 function schedule() {
   if (!player.playing || !ctx) return;
   const now = ctx.currentTime;
   // 弾くまで待つときは、次に弾くところより前の音だけ予約する（同じ拍の音は、弾いたときに鳴らす）
+  // 判定つきのときは、まだ弾いていない音の判定の幅の終わりまでだけ予約する（大きく遅れたら止まって待つ）
+  if (player.judge) judgeUpdate();
   const step = currentStep();
-  const limit = step ? step.beat - 1e-6 : Infinity;
+  const cap = player.judge ? judgeCapBeat() : undefined;
+  const limit = step ? step.beat - 1e-6 : cap !== undefined ? cap : Infinity;
   for (let b = peekBeat(); b < limit && beatToTime(b) < now + SCHEDULE_AHEAD; b = peekBeat()) {
     const ev = player.events[player.idx++];
     // 練習する手の音は鳴らさない（自分で弾く）。もう片方を鳴らさない設定ならそれも鳴らさない
@@ -1816,7 +1907,8 @@ function schedule() {
   }
   player.scheduled = player.scheduled.filter((v) => v.end > now);
   // くり返さないときは、区間の終わりまで行ったら止める（くり返すときは停止ボタンで止める）
-  if (!player.loop && peekBeat() === Infinity && !step && now > beatToTime(player.end) + 0.3) stopPlayback(true);
+  if (!player.loop && peekBeat() === Infinity && !step && !judgeStep(player.g) &&
+      now > beatToTime(player.end) + 0.3) stopPlayback(true);
 }
 
 function playScheduled(midi, t, dur) {
@@ -1829,6 +1921,193 @@ function playScheduled(midi, t, dur) {
   v.oscs.forEach((o) => o.stop(stopAt));
   v.oscs[0].onended = () => v.out.disconnect();
   player.scheduled.push({ out: v.out, oscs: v.oscs, end: stopAt });
+}
+
+// カウント・タイミング調整のクリック音（短い「プッ」）。accent：1拍目は高めの音
+function makeClick(t, accent) {
+  const o = osc('sine', accent ? 1760 : 1320, t);
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(0.5, t + 0.002);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+  o.connect(g);
+  g.connect(master);
+  o.stop(t + 0.07);
+  o.onended = () => g.disconnect();
+  return { out: g, oscs: [o], end: t + 0.07 };
+}
+function playClick(t, accent) {
+  player.scheduled.push(makeClick(t, accent));
+}
+
+// ===== タイミングの判定（判定つき） =====
+// 押した時刻は、イベントの timeStamp（押した瞬間）を「その瞬間にスピーカーから出ていた音の時刻」に直して、
+// 予約した音の時刻と比べる。さらにタイミング調整で測った、この端末の遅れを差し引く
+function audioTimeAt(perfMs) {
+  if (ctx.getOutputTimestamp) {
+    const ts = ctx.getOutputTimestamp();
+    if (ts.performanceTime > 0 && ts.contextTime > 0) return ts.contextTime + (perfMs - ts.performanceTime) / 1000;
+  }
+  const latency = ctx.outputLatency || ctx.baseLatency || 0;
+  return ctx.currentTime - latency - (performance.now() - perfMs) / 1000;
+}
+// イベントの timeStamp が performance.now() と同じ基準でない環境に備える
+function eventPerfTime(e) {
+  const now = performance.now();
+  const t = e && e.timeStamp;
+  return t > 0 && t <= now + 5 && now - t < 1000 ? t : now;
+}
+
+// 判定の幅（秒）。速い曲で幅が音の間隔より広くならないよう、半拍を上限にする
+function judgeWindows() {
+  const half = 30 / player.tempo;
+  const good = Math.min(0.2, half);
+  const great = Math.min(0.12, good);
+  return { good, great, perfect: Math.min(0.06, great) };
+}
+const JUDGE_NAMES = { perfect: 'パーフェクト', great: 'グレート', good: 'グッド', miss: 'ミス' };
+const JUDGE_SCORE = { perfect: 100, great: 70, good: 40, miss: 0 };
+
+// 通し番号 g の「弾くところ」。拍はくり返しの回数を足したもの。くり返さないときは区間の最後まで
+function judgeStep(g) {
+  const n = player.steps.length;
+  if (!player.judge || !n || (!player.loop && g >= n)) return undefined;
+  const s = player.steps[g % n];
+  return { beat: s.beat + Math.floor(g / n) * player.len, midis: s.midis };
+}
+function judgeState(g) {
+  if (!player.jstate.has(g)) player.jstate.set(g, { pressed: new Set(), missed: false });
+  return player.jstate.get(g);
+}
+// まだ弾き終わっていない最初の音の、判定の幅の終わりの拍（ここで止まって待つ）
+function judgeCapBeat() {
+  const st = judgeStep(player.g);
+  return st && st.beat + judgeWindows().good * player.tempo / 60;
+}
+
+// 25ミリ秒ごと：弾き終わった音を進め、判定の幅を過ぎても弾いていない音をミスにする
+function judgeUpdate() {
+  const nowT = audioTimeAt(performance.now()) - settings.timingOffset;
+  for (let st = judgeStep(player.g); st; st = judgeStep(player.g)) {
+    const state = judgeState(player.g);
+    if (st.midis.every((m) => state.pressed.has(m))) { finishJudgeStep(); continue; }
+    if (!state.missed && nowT > beatToTime(st.beat) + judgeWindows().good) {
+      state.missed = true;
+      for (const m of st.midis) if (!state.pressed.has(m)) addJudge('miss');
+      showJudge('miss');
+    }
+    break;
+  }
+}
+
+// いちばん前の「弾くところ」を弾き終えた。区間の最後なら、その回の成績をまとめる
+function finishJudgeStep() {
+  const g = player.g;
+  player.jstate.delete(g);
+  player.g++;
+  if (g % player.steps.length === player.steps.length - 1) finishJudgePass();
+}
+
+function judgeAccuracy(c) {
+  const total = c.perfect + c.great + c.good + c.miss;
+  if (!total) return null;
+  return Math.round((c.perfect * JUDGE_SCORE.perfect + c.great * JUDGE_SCORE.great + c.good * JUDGE_SCORE.good) / total);
+}
+
+// 区間を1回弾き終えた：その回の正確さを最高記録と比べて保存する
+const SONG_RECORD_KEY = 'piano-practice:song-records';   // 曲・練習する手・区間ごとの最高の正確さ（％）
+const songRecords = loadJSON(SONG_RECORD_KEY);
+function songRecordKey() {
+  const r = songRange(currentSong());
+  return `${currentSong().id}:${settings.songHand}:${r.from}-${r.to}`;
+}
+function finishJudgePass() {
+  const c = {};
+  for (const k of Object.keys(player.counts)) c[k] = player.counts[k] - player.passStart[k];
+  const acc = judgeAccuracy(c);
+  player.passStart = { ...player.counts };
+  if (acc === null) return;
+  const key = songRecordKey();
+  const best = songRecords[key];
+  const newRecord = best === undefined || acc > best;
+  if (newRecord) { songRecords[key] = acc; saveJSON(SONG_RECORD_KEY, songRecords); }
+  player.lastPassAcc = acc;
+  player.result = { ...c, acc, best, newRecord };
+}
+
+function addJudge(grade) {
+  player.counts[grade]++;
+}
+
+// 判定の表示：いちばん新しい判定と、はやい・おそい
+function showJudge(grade, delta) {
+  const sub = grade === 'miss' || grade === 'perfect' || delta === undefined ? '' : delta < 0 ? 'はやい' : 'おそい';
+  setJudgeText(JUDGE_NAMES[grade], 'j-' + grade, sub, true);
+}
+// pop：判定のたびに少し大きく出す（同じ判定が続いても、弾いたことがわかるように）
+function setJudgeText(text, cls, sub = '', pop = false) {
+  const el = document.getElementById('songJudge');
+  const key = text + '|' + cls + '|' + sub;
+  if (!pop && el.dataset.key === key) return;
+  el.dataset.key = key;
+  el.className = '';
+  if (pop) void el.offsetWidth;   // アニメーションを最初からやり直す
+  el.className = cls + (pop ? ' pop' : '');
+  el.textContent = text;
+  if (sub) {
+    const span = document.createElement('span');
+    span.className = 'sub';
+    span.textContent = sub;
+    el.appendChild(span);
+  }
+}
+
+// 判定つきで鍵盤が押されたとき（指が触れた瞬間・PCのキーを押した瞬間だけ。指を滑らせて移った鍵盤は判定しない）
+// いちばん近い時刻の「弾くところ」の音として判定する。どれにも当たらなければミス
+function songJudgePress(midi, perfMs) {
+  if (!player.playing || !player.judge || !ctx) return;
+  judgeUpdate();
+  const pressT = audioTimeAt(perfMs) - settings.timingOffset;
+  const win = judgeWindows();
+  const visible = new Set(visibleMidis());
+  const matchOf = (st, state) => st.midis.find((m) =>
+    !state.pressed.has(m) && (m === midi || (!visible.has(m) && m % 12 === midi % 12)));
+  // 止まって待っているときは、待っている音だけを受け付ける（もうミスになっているので、弾いたら先へ進むだけ）
+  const first = judgeStep(player.g);
+  if (first && judgeState(player.g).missed) {
+    const state = judgeState(player.g);
+    const m = matchOf(first, state);
+    if (m === undefined) { addJudge('miss'); showJudge('miss'); return; }
+    state.pressed.add(m);
+    if (first.midis.every((x) => state.pressed.has(x))) {
+      // 止まっていたところから再開する
+      const cap = judgeCapBeat();
+      player.anchorBeat = Math.min(cap, timeToBeat(ctx.currentTime));
+      player.anchorTime = ctx.currentTime;
+      player.showAfter = performance.now() + 120;
+      finishJudgeStep();
+      schedule();
+    }
+    return;
+  }
+  let best = null;
+  for (let g = player.g, st = judgeStep(g); st; st = judgeStep(++g)) {
+    const t = beatToTime(st.beat);
+    if (t - win.good > pressT) break;
+    const state = judgeState(g);
+    const m = matchOf(st, state);
+    if (m === undefined) continue;
+    const delta = pressT - t;
+    if (Math.abs(delta) <= win.good && (!best || Math.abs(delta) < Math.abs(best.delta))) best = { g, m, delta };
+  }
+  if (!best) { addJudge('miss'); showJudge('miss'); return; }
+  const ad = Math.abs(best.delta);
+  const grade = ad <= win.perfect ? 'perfect' : ad <= win.great ? 'great' : 'good';
+  judgeState(best.g).pressed.add(best.m);
+  addJudge(grade);
+  showJudge(grade, best.delta);
+  player.showAfter = performance.now() + 120;
+  judgeUpdate();
 }
 
 // 曲の練習中に鍵盤が押されたとき（弾くまで待つ練習の判定）
@@ -1866,7 +2145,7 @@ function drawPlayback() {
   const next = new Map();
   for (const ev of player.events) {
     if (ev.beat > beat) break;
-    if (player.wait && ev.hand === player.practice) continue;   // 練習する手は「次に弾く鍵盤」として下で光らせる
+    if ((player.wait || player.judge) && ev.hand === player.practice) continue;   // 練習する手は「次に弾く鍵盤」として下で光らせる
     if (step && ev.beat + pass * player.len >= step.beat - 1e-6) continue;   // 次に弾くところと同じ拍の音は、弾いてから鳴るので、まだ光らせない
     // 同じ音が続くときに光り直して見えるよう、音の長さの9割だけ光らせる
     if (beat < ev.beat + ev.dur * 0.9) {
@@ -1875,12 +2154,19 @@ function drawPlayback() {
   }
   // 弾くまで待つ：次に弾く鍵盤（まだ押していない音）を光らせる。練習する手の色を優先
   if (step) for (const m of step.midis) if (!player.pressed.has(m)) next.set(m, player.practice);
+  // 判定つき：次に弾く鍵盤（まだ押していない音）を光らせる。弾いた直後は少しだけ消して、同じ鍵盤が続いてもわかるようにする
+  const jst = judgeStep(player.g);
+  if (jst && performance.now() >= player.showAfter) {
+    const state = judgeState(player.g);
+    for (const m of jst.midis) if (!state.pressed.has(m)) next.set(m, player.practice);
+  }
   setLit(next);
   const song = player.song;
   const firstBar = player.start / song.beatsPerBar + 1;
   const lastBar = Math.ceil(player.end / song.beatsPerBar - 1e-6);
   const bar = Math.min(lastBar, Math.max(firstBar, Math.floor(beat / song.beatsPerBar + 1e-6) + 1));
-  let text = `${bar} / ${song.bars} 小節　♩=${player.tempo}`;
+  // 判定つきは正確さを出すので、横に長くならないようテンポは出さない（テンポは操作パネルに出ている）
+  let text = `${bar} / ${song.bars} 小節` + (player.judge ? '' : `　♩=${player.tempo}`);
   if (player.loop) {
     // くり返すときは、何回目かと、この回のミス（弾くまで待つとき）を出す
     text += `　${(player.wait ? player.stepPass : pass) + 1}回目`;
@@ -1890,6 +2176,27 @@ function drawPlayback() {
     }
   } else if (player.wait) {
     text += `　ミス ${player.misses}`;
+  }
+  if (player.judge) {
+    // 正確さ：くり返すときはこの回の分と、前の回の分
+    const c = {};
+    for (const k of Object.keys(player.counts)) c[k] = player.counts[k] - (player.loop ? player.passStart[k] : 0);
+    const acc = judgeAccuracy(c);
+    if (acc !== null) text += `　正確さ ${acc}%`;
+    if (player.loop && player.lastPassAcc !== null) text += `（前回 ${player.lastPassAcc}%）`;
+  }
+  if (player.judge) {
+    // カウント中は「1・2・3・4」を出す（まだ何も判定していないときだけ）
+    if (player.counting) {
+      const countStart = player.start - song.beatsPerBar;
+      const judged = judgeAccuracy(player.counts) !== null;
+      if (vbeat >= player.start || judged) {
+        player.counting = false;
+        if (!judged) setJudgeText('', '');
+      } else {
+        setJudgeText(vbeat < countStart ? '' : `カウント ${Math.floor(vbeat - countStart) + 1}`, 'j-info');
+      }
+    }
   }
   setSongStatus(text);
   player.raf = requestAnimationFrame(drawPlayback);
@@ -1931,6 +2238,18 @@ function showSong() {
   setSongStatus(`${bars}　♩=${songTempo(song)}` + (outside ? '　※鍵盤に入りきらない音があります' : ''));
   handSelect.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.hand === hand));
   document.getElementById('songHint').textContent = songHintText();
+  // 判定つきのときだけ判定の行を出す。止まっているときは最高記録を出す
+  const judge = hand !== 'both' && settings.songAdvance === 'judge';
+  const judgeEl = document.getElementById('songJudge');
+  if (judge === judgeEl.hasAttribute('data-off')) {
+    judgeEl.toggleAttribute('data-off', !judge);
+    requestAnimationFrame(refitKeyboard);   // 表示エリアの高さが変わるので、鍵盤の大きさを合わせ直す
+  }
+  if (judge) {
+    const best = songRecords[songRecordKey()];
+    setJudgeText(best !== undefined ? `最高記録 ${best}%` : '記録なし', 'j-info');
+  }
+  document.getElementById('calibLabel').textContent = calibText(settings.timingOffset);
 }
 
 function songHintText() {
@@ -1940,6 +2259,9 @@ function songHintText() {
   const other = settings.songOther === 'play' ? '（もう片方の手は自動で鳴ります）' : '';
   if (settings.songAdvance === 'wait') {
     return `${name}を練習：光った鍵盤を弾くと進みます${other}`;
+  }
+  if (settings.songAdvance === 'judge') {
+    return `${name}を練習：光った鍵盤をテンポに合わせて弾くと判定します${other}`;
   }
   return `${name}を練習：光る鍵盤に合わせて弾いてください${other}`;
 }
@@ -1982,7 +2304,9 @@ for (const [id, prop] of [['songAdvanceSelect', 'songAdvance'], ['songOtherSelec
     stopPlayback();
     settings[prop] = sel.value;
     saveSettings();
+    updateVisibility();   // タイミング調整の項目を出す・隠す
     showSong();
+    refitKeyboard();
     sel.blur();
   });
 }
@@ -1990,6 +2314,111 @@ for (const [id, prop] of [['songAdvanceSelect', 'songAdvance'], ['songOtherSelec
 playBtn.addEventListener('click', () => {
   if (player.playing) stopPlayback();
   else startPlayback();
+});
+
+// ===== タイミング調整 =====
+// 一定の間隔のクリック音に合わせてタップしてもらい、クリック音とのずれの中央値を、この端末の遅れとして保存する
+// （画面に触れてから届くまでの遅れ、Bluetoothイヤホンなどで音が遅れて聞こえる分をまとめて測る）
+const CALIB_TAPS = 8;          // 何回タップしてもらうか
+const CALIB_INTERVAL = 0.6;    // クリックの間隔（秒）
+const CALIB_CLICKS = 30;       // クリックの最大数（足りなければ測り直し）
+const calib = { open: false, clicks: [], sounds: [], deltas: [], result: null, timer: null };
+const calibOverlay = document.getElementById('calibOverlay');
+const calibPad = document.getElementById('calibPad');
+
+function calibText(offset) {
+  const ms = Math.round(offset * 1000);
+  if (ms === 0) return 'ずれ 0秒';
+  return `ずれ ${(Math.abs(offset)).toFixed(2)}秒（${ms > 0 ? '遅め' : '早め'}）`;
+}
+function setCalibButtons(phase) {
+  document.getElementById('calibSave').hidden = phase !== 'done';
+  document.getElementById('calibRetry').hidden = phase === 'running';
+  calibPad.disabled = phase !== 'running';
+}
+
+function openCalib() {
+  stopPlayback();
+  calib.open = true;
+  calibOverlay.classList.remove('hidden');
+  startCalib();
+}
+function startCalib() {
+  initAudio();
+  stopCalibSounds();
+  calib.deltas = [];
+  calib.result = null;
+  const t0 = ctx.currentTime + 0.5;
+  calib.clicks = [];
+  for (let i = 0; i < CALIB_CLICKS; i++) {
+    const t = t0 + i * CALIB_INTERVAL;
+    calib.clicks.push(t);
+    calib.sounds.push(makeClick(t, i % 4 === 0));
+  }
+  document.getElementById('calibText').textContent =
+    `「プッ」という音に合わせて、下のボタンを${CALIB_TAPS}回タップしてください（PCはどのキーでも可）。音を聴きながら、いつも通りのタイミングで押すのがコツです`;
+  document.getElementById('calibProgress').textContent = `0 / ${CALIB_TAPS}`;
+  setCalibButtons('running');
+  // クリックが終わっても足りなければ、測り直してもらう
+  clearTimeout(calib.timer);
+  calib.timer = setTimeout(() => {
+    if (!calib.open || calib.result !== null) return;
+    document.getElementById('calibText').textContent = 'うまく測れませんでした。「やり直す」を押して、音に合わせてタップしてください';
+    setCalibButtons('failed');
+  }, (t0 - ctx.currentTime + CALIB_CLICKS * CALIB_INTERVAL + 0.3) * 1000);
+}
+function stopCalibSounds() {
+  if (ctx) {
+    const now = ctx.currentTime;
+    for (const v of calib.sounds) if (v.end > now) v.oscs.forEach((o) => { try { o.stop(now); } catch (e) {} });
+  }
+  calib.sounds = [];
+}
+function closeCalib() {
+  calib.open = false;
+  clearTimeout(calib.timer);
+  stopCalibSounds();
+  calibOverlay.classList.add('hidden');
+  showSong();
+}
+
+// タップした時刻を、いちばん近いクリックと比べる。半間隔より離れたタップ（打ち間違い）は数えない
+function calibTap(perfMs) {
+  if (!calib.open || calib.result !== null || !ctx) return;
+  const t = audioTimeAt(perfMs);
+  let delta = Infinity;
+  for (const c of calib.clicks) if (Math.abs(t - c) < Math.abs(delta)) delta = t - c;
+  calibPad.classList.add('flash');
+  setTimeout(() => calibPad.classList.remove('flash'), 90);
+  if (Math.abs(delta) > CALIB_INTERVAL * 0.45) return;
+  calib.deltas.push(delta);
+  document.getElementById('calibProgress').textContent = `${calib.deltas.length} / ${CALIB_TAPS}`;
+  if (calib.deltas.length < CALIB_TAPS) return;
+  const sorted = [...calib.deltas].sort((a, b) => a - b);
+  const mid = sorted.length / 2;
+  calib.result = (sorted[Math.floor(mid - 0.5)] + sorted[Math.ceil(mid - 0.5)]) / 2;
+  const spread = sorted[sorted.length - 2] - sorted[1];   // いちばん外れた2つを除いたばらつき
+  stopCalibSounds();
+  document.getElementById('calibText').textContent =
+    `測れました：${calibText(calib.result)}。判定のときにこの分を差し引きます` +
+    (spread > 0.15 ? '（タップのばらつきが大きめでした。やり直すと正確になるかもしれません）' : '');
+  setCalibButtons('done');
+}
+function calibKeydown(e) {
+  if (e.repeat || e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.code === 'Escape') { closeCalib(); return; }
+  e.preventDefault();
+  calibTap(eventPerfTime(e));
+}
+
+calibPad.addEventListener('pointerdown', (e) => { e.preventDefault(); calibTap(eventPerfTime(e)); });
+document.getElementById('calibBtn').addEventListener('click', openCalib);
+document.getElementById('calibRetry').addEventListener('click', startCalib);
+document.getElementById('calibCancel').addEventListener('click', closeCalib);
+document.getElementById('calibSave').addEventListener('click', () => {
+  settings.timingOffset = Math.round(calib.result * 1000) / 1000;
+  saveSettings();
+  closeCalib();
 });
 
 // ===== 部分ループ（区間を決めてくり返す） =====
