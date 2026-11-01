@@ -30,3 +30,4 @@
 - `docs/roadmap.md` … 作業の順番と進捗（作業の前に読み、終わったら更新する）
 - `docs/features.md` … 作りたい機能の候補一覧
 - `docs/technical-notes.md` … 技術メモ（制約の詳細、音の合成方法などの実装メモ）
+- `tools/loudness/` … 開発用：各音の聞こえる大きさを測り、聴感補正の表を計算する（Playwrightで実行。アプリの動作には使わない）
