@@ -83,6 +83,9 @@
     color: #fff;
   }
   input[type="range"] { width: 110px; accent-color: var(--accent); }
+  /* 設定をたたんだときは、よく使う項目（data-main）だけ出す */
+  .controls.collapsed .group:not([data-main]) { display: none; }
+  .settings-toggle { color: var(--sub); }
 
   /* 音名表示エリア */
   .display {
@@ -329,6 +332,12 @@
     color: #fff;
   }
   #playBtn.playing { background: #c5221f; border-color: #c5221f; }
+  #songHint { font-size: 13px; color: var(--sub); text-align: center; min-height: 1.2em; }
+  .hand-select { display: flex; }
+  .hand-select button { min-width: 64px; border-radius: 0; margin-left: -1px; }
+  .hand-select button:first-child { border-radius: 8px 0 0 8px; margin-left: 0; }
+  .hand-select button:last-child { border-radius: 0 8px 8px 0; }
+  .hand-select button.on { background: var(--accent); border-color: var(--accent); color: #fff; position: relative; }
   #tempoLabel { min-width: 52px; font-variant-numeric: tabular-nums; }
   .key.white.demo-left { background: #c3a3ff; }
   .key.black.demo-left { background: #7e4fe0; }
@@ -349,7 +358,7 @@
 </div>
 
 <div class="controls">
-  <div class="group">
+  <div class="group" data-main>
     <span class="label">モード</span>
     <select id="modeSelect">
       <option value="piano">鍵盤ピアノ</option>
@@ -358,9 +367,23 @@
       <option value="song">曲の練習</option>
     </select>
   </div>
-  <div class="group" data-modes="song">
+  <div class="group" data-modes="song" data-main>
     <span class="label">曲</span>
     <select id="songSelect"></select>
+  </div>
+  <div class="group" data-modes="song" data-practice-only>
+    <span class="label">進み方</span>
+    <select id="songAdvanceSelect">
+      <option value="wait">弾くまで待つ</option>
+      <option value="tempo">テンポ通り</option>
+    </select>
+  </div>
+  <div class="group" data-modes="song" data-practice-only>
+    <span class="label">もう片方の手</span>
+    <select id="songOtherSelect">
+      <option value="play">自動で鳴らす</option>
+      <option value="mute">鳴らさない</option>
+    </select>
   </div>
   <div class="group" data-modes="song">
     <span class="label">テンポ</span>
@@ -380,13 +403,13 @@
     <span class="label">音量</span>
     <input type="range" id="volume" min="0" max="100" step="1">
   </div>
-  <div class="group" data-modes="piano keyQuiz song">
+  <div class="group" data-modes="piano keyQuiz song" data-main>
     <span class="label">オクターブ</span>
     <button id="octDown" aria-label="オクターブを下げる">◀</button>
     <span class="octave-label" id="octLabel"></span>
     <button id="octUp" aria-label="オクターブを上げる">▶</button>
   </div>
-  <div class="group" data-modes="piano">
+  <div class="group" data-modes="piano" data-main>
     <button id="sustainBtn">サスティン：オフ</button>
   </div>
   <div class="group" data-modes="piano">
@@ -462,6 +485,7 @@
   <div class="group" data-modes="nameQuiz keyQuiz">
     <button id="quizResetBtn">成績リセット</button>
   </div>
+  <button id="settingsToggle" class="settings-toggle" aria-expanded="true"></button>
 </div>
 
 <div class="display" id="display" data-modes="piano keyQuiz song">
@@ -479,8 +503,14 @@
       <div id="songStatus"></div>
       <div class="song-legend"><span class="lg-right">右手</span><span class="lg-left">左手</span></div>
     </div>
+    <div class="hand-select" id="handSelect" role="group" aria-label="練習する手">
+      <button data-hand="both">両手</button>
+      <button data-hand="right">右手</button>
+      <button data-hand="left">左手</button>
+    </div>
     <button id="playBtn">▶ 再生</button>
   </div>
+  <div id="songHint" data-modes="song"></div>
 </div>
 
 <div class="keyboard-wrap" data-modes="piano keyQuiz song">
@@ -515,6 +545,10 @@ const settings = Object.assign({
   keyQuizOctave: 'any',  // any（どのオクターブでも正解）/ exact（オクターブも当てる）
   songId: null,          // 曲の練習で選んでいる曲
   songTempos: {},        // 曲ごとに変えたテンポ（曲のid → ♩の数）
+  songHand: 'both',      // 練習する手：both（両手＝お手本を聴く）/ right / left
+  songAdvance: 'wait',   // 片手練習の進み方：wait（弾くまで待つ）/ tempo（テンポ通り）
+  songOther: 'play',     // 片手練習のもう片方の手：play（自動で鳴らす）/ mute（鳴らさない）
+  controlsOpen: null,    // 設定を開いているか（null なら画面の大きさで決める）
 }, loadJSON(STORAGE_KEY));
 
 function loadJSON(key) {
@@ -753,6 +787,7 @@ function noteOn(midi) {
   startVoice(midi);
   setKeyActive(midi, true);
   updateDisplay();
+  if (settings.mode === 'song') songNoteOn(midi);
 }
 
 function noteOff(midi) {
@@ -907,12 +942,18 @@ const KEY_MIN_WIDTH = { large: 58, medium: 44, small: 32 };
 const KEY_RATIO = 6;          // 白鍵の高さ÷幅の上限（実物のピアノに近い比率）
 const KEY_MAX_HEIGHT = 420;
 const DISPLAY_MIN = 90;       // 音名表示エリアに最低限残す高さ
-const DISPLAY_MIN_KEYQUIZ = 105;   // 位置当てクイズ（問題・案内・成績の3行）
 let octaves = 2;
 let rows = 1;
 let startOctave = 4;
 
-const displayMin = () => (settings.mode === 'keyQuiz' ? DISPLAY_MIN_KEYQUIZ : DISPLAY_MIN);
+// 表示エリアに残す高さ。クイズや曲の表示は、中身に必要な高さを測って空ける
+function displayMin() {
+  const ids = settings.mode === 'keyQuiz' ? ['.keyquiz-panel']
+    : settings.mode === 'song' ? ['.song-panel', '#songHint'] : [];
+  let h = 0;
+  for (const sel of ids) h += document.querySelector(sel).offsetHeight + 4;
+  return Math.max(DISPLAY_MIN, h + 16);   // 16：表示エリアの上下の余白
+}
 let songOctave = null;   // 曲の練習で、オクターブボタンで動かした鍵盤の位置（null なら曲に合わせて自動）
 
 function calcOctaves() {
@@ -958,9 +999,9 @@ function renderKeyboard() {
     addRow(startOctave, null);
   }
   updateLabels();
-  sizeKeyboard();
   if (settings.mode === 'keyQuiz') nextKeyQuestion();   // 鍵盤の範囲が変わったので出題し直す
   if (settings.mode === 'song' && !player.playing) showSong();   // 鍵盤に入りきらない音があるかを表示し直す
+  sizeKeyboard();   // 表示エリアの中身が決まってから、鍵盤の高さを決める
   document.getElementById('octLabel').textContent =
     rows === 2 ? 'C' + (startOctave - octaves) + '〜C' + (startOctave + octaves) : rangeLabel(startOctave);
 }
@@ -1173,7 +1214,8 @@ modeSelect.addEventListener('change', () => {
 function applyMode() {
   const mode = settings.mode;
   document.querySelectorAll('[data-modes]').forEach((el) => {
-    el.hidden = !el.dataset.modes.split(' ').includes(mode);
+    el.hidden = !el.dataset.modes.split(' ').includes(mode) ||
+      ('practiceOnly' in el.dataset && settings.songHand === 'both');   // 片手練習のときだけ出す項目
   });
   setSustain(false);
   stopQuiz();
@@ -1555,8 +1597,10 @@ const songTempo = (song) => settings.songTempos[song.id] || song.tempo;
 
 // 鍵盤の位置（下段の左端のオクターブ）を、曲の音がいちばん多く入る位置にする
 // 2段のときは、右手の音は下段、左手の音は上段に入っている数で比べる
+// 片手練習のときは、練習する手の音を優先する（10倍の重みで数える）
 function fitOctaveForSong() {
   const events = currentSong().events;
+  const practice = settings.songHand === 'both' ? null : settings.songHand;
   const inRange = (m, lowOct) => m >= 12 * (lowOct + 1) && m <= 12 * (lowOct + 1 + octaves);
   let best = null;
   let bestCount = -1;
@@ -1565,8 +1609,9 @@ function fitOctaveForSong() {
     let count = 0;
     for (const ev of events) {
       for (const m of ev.midis) {
-        if (rows === 2) count += inRange(m, ev.hand === 'right' ? o : o - octaves) ? 1 : 0;
-        else count += inRange(m, o) ? 1 : 0;
+        const weight = practice && ev.hand === practice ? 10 : 1;
+        if (rows === 2) count += inRange(m, ev.hand === 'right' ? o : o - octaves) ? weight : 0;
+        else count += inRange(m, o) ? weight : 0;
       }
     }
     if (count > bestCount) { best = o; bestCount = count; }
@@ -1588,15 +1633,45 @@ const player = {
   timer: null,
   raf: null,
   lastStatus: '',
+  // 片手練習
+  practice: null,      // 練習する手（right / left）。両手なら null
+  wait: false,         // 弾くまで待つか
+  muteOther: false,    // もう片方の手を鳴らさないか
+  steps: [],           // 練習する手の「弾くところ」：{ beat, midis }（同じ拍の音はまとめる）
+  stepIdx: 0,          // 次に弾くところの番号
+  pressed: new Set(),  // 次に弾くところのうち、もう押した音（和音は全部押したら進む）
+  misses: 0,
 };
 const lit = new Map();   // 光らせている鍵盤：midi → 'right' / 'left'
 
 const beatToTime = (beat) => player.anchorTime + (beat - player.anchorBeat) * 60 / player.tempo;
 const timeToBeat = (time) => player.anchorBeat + (time - player.anchorTime) * player.tempo / 60;
+const currentStep = () => (player.wait ? player.steps[player.stepIdx] : undefined);
+
+// いまの拍。弾くまで待つときは、次に弾くところで止まる
+function playbackBeat(time) {
+  const beat = timeToBeat(time);
+  const step = currentStep();
+  return step && beat > step.beat ? step.beat : beat;
+}
+
+// 練習する手の音を、同じ拍ごとにまとめる
+function buildSteps(song, hand) {
+  const steps = [];
+  for (const ev of song.events) {
+    if (ev.hand !== hand) continue;
+    const last = steps[steps.length - 1];
+    if (last && Math.abs(last.beat - ev.beat) < 1e-6) last.midis.push(...ev.midis);
+    else steps.push({ beat: ev.beat, midis: [...ev.midis] });
+  }
+  return steps;
+}
 
 function startPlayback() {
   initAudio();
   const song = currentSong();
+  const practice = settings.songHand === 'both' ? null : settings.songHand;
+  const wait = !!practice && settings.songAdvance === 'wait';
   Object.assign(player, {
     playing: true,
     song,
@@ -1605,6 +1680,13 @@ function startPlayback() {
     anchorTime: ctx.currentTime + 0.15,
     anchorBeat: 0,
     scheduled: [],
+    practice,
+    wait,
+    muteOther: !!practice && settings.songOther === 'mute',
+    steps: wait ? buildSteps(song, practice) : [],
+    stepIdx: 0,
+    pressed: new Set(),
+    misses: 0,
   });
   playBtn.textContent = '■ 停止';
   playBtn.classList.add('playing');
@@ -1613,7 +1695,8 @@ function startPlayback() {
   player.raf = requestAnimationFrame(drawPlayback);
 }
 
-function stopPlayback() {
+// finished：曲の最後まで行って止まったとき
+function stopPlayback(finished = false) {
   if (!player.playing) return;
   player.playing = false;
   clearInterval(player.timer);
@@ -1635,21 +1718,30 @@ function stopPlayback() {
   playBtn.textContent = '▶ 再生';
   playBtn.classList.remove('playing');
   showSong();
+  if (finished && player.wait) {
+    setSongStatus(`最後まで弾けました！　ミス ${player.misses}回`);
+  }
 }
 
 function schedule() {
   if (!player.playing || !ctx) return;
   const now = ctx.currentTime;
   const events = player.song.events;
-  while (player.idx < events.length && beatToTime(events[player.idx].beat) < now + SCHEDULE_AHEAD) {
+  // 弾くまで待つときは、次に弾くところより前の音だけ予約する（同じ拍の音は、弾いたときに鳴らす）
+  const step = currentStep();
+  const limit = step ? step.beat - 1e-6 : Infinity;
+  while (player.idx < events.length && events[player.idx].beat < limit &&
+         beatToTime(events[player.idx].beat) < now + SCHEDULE_AHEAD) {
     const ev = events[player.idx++];
+    // 練習する手の音は鳴らさない（自分で弾く）。もう片方を鳴らさない設定ならそれも鳴らさない
+    if (ev.hand === player.practice || player.muteOther) continue;
     const t = Math.max(now, beatToTime(ev.beat));
     // 同じ音が続いても聞き分けられるよう、少しだけ短く鳴らす
     const dur = Math.max(0.05, ev.dur * 60 / player.tempo - 0.03);
     ev.midis.forEach((m) => playScheduled(m, t, dur));
   }
   player.scheduled = player.scheduled.filter((v) => v.end > now);
-  if (player.idx >= events.length && now > beatToTime(player.song.totalBeats) + 0.3) stopPlayback();
+  if (player.idx >= events.length && !step && now > beatToTime(player.song.totalBeats) + 0.3) stopPlayback(true);
 }
 
 function playScheduled(midi, t, dur) {
@@ -1664,23 +1756,51 @@ function playScheduled(midi, t, dur) {
   player.scheduled.push({ out: v.out, oscs: v.oscs, end: stopAt });
 }
 
+// 曲の練習中に鍵盤が押されたとき（弾くまで待つ練習の判定）
+// 光っている鍵盤と同じ音なら正解。その鍵盤が画面に入っていないときは、同じ音名の鍵盤でも正解にする
+function songNoteOn(midi) {
+  const step = currentStep();
+  if (!player.playing || !step || !ctx) return;
+  const visible = new Set(visibleMidis());
+  const match = step.midis.find((m) => m === midi || (!visible.has(m) && m % 12 === midi % 12));
+  if (match === undefined) {
+    if (!step.midis.some((m) => player.pressed.has(m) && m % 12 === midi % 12)) player.misses++;
+    return;
+  }
+  player.pressed.add(match);
+  if (!step.midis.every((m) => player.pressed.has(m))) return;
+  // 全部押せたので次へ。早めに弾いたときは、その位置まで進める（間の伴奏は飛ばす）
+  const events = player.song.events;
+  while (player.idx < events.length && events[player.idx].beat < step.beat - 1e-6) player.idx++;
+  player.anchorBeat = step.beat;
+  player.anchorTime = ctx.currentTime;
+  player.stepIdx++;
+  player.pressed.clear();
+  schedule();   // 同じ拍のもう片方の手の音を、すぐ鳴らす
+}
+
 // 画面の更新：いま鳴っている音の鍵盤を光らせ、小節を表示する
 function drawPlayback() {
   if (!player.playing) return;
   // スピーカーから実際に音が出るまでの遅れの分だけ、表示を遅らせる
   const latency = ctx.outputLatency || ctx.baseLatency || 0;
-  const beat = timeToBeat(ctx.currentTime - latency);
+  const beat = playbackBeat(ctx.currentTime - latency);
+  const step = currentStep();
   const next = new Map();
   for (const ev of player.song.events) {
     if (ev.beat > beat) break;
+    if (player.wait && ev.hand === player.practice) continue;   // 練習する手は「次に弾く鍵盤」として下で光らせる
+    if (step && ev.beat >= step.beat - 1e-6) continue;          // 次に弾くところと同じ拍の音は、弾いてから鳴るので、まだ光らせない
     // 同じ音が続くときに光り直して見えるよう、音の長さの9割だけ光らせる
     if (beat < ev.beat + ev.dur * 0.9) {
       for (const m of ev.midis) if (next.get(m) !== 'right') next.set(m, ev.hand);
     }
   }
+  // 弾くまで待つ：次に弾く鍵盤（まだ押していない音）を光らせる。練習する手の色を優先
+  if (step) for (const m of step.midis) if (!player.pressed.has(m)) next.set(m, player.practice);
   setLit(next);
   const bar = Math.min(player.song.bars, Math.max(1, Math.floor(beat / player.song.beatsPerBar) + 1));
-  setSongStatus(`${bar} / ${player.song.bars} 小節　♩=${player.tempo}`);
+  setSongStatus(`${bar} / ${player.song.bars} 小節　♩=${player.tempo}` + (player.wait ? `　ミス ${player.misses}` : ''));
   player.raf = requestAnimationFrame(drawPlayback);
 }
 
@@ -1710,14 +1830,30 @@ function showSong() {
   songSelect.value = song.id;
   tempoInput.value = songTempo(song);
   document.getElementById('tempoLabel').textContent = '♩=' + songTempo(song);
-  const keys = new Set([...keyboardEl.querySelectorAll('.key')].map((el) => Number(el.dataset.midi)));
-  const outside = keys.size > 0 && song.events.some((e) => e.midis.some((m) => !keys.has(m)));
+  const hand = settings.songHand;
+  const keys = new Set(visibleMidis());
+  const outside = keys.size > 0 && song.events.some((e) =>
+    (hand === 'both' || e.hand === hand) && e.midis.some((m) => !keys.has(m)));
   setSongStatus(`全${song.bars}小節　♩=${songTempo(song)}` + (outside ? '　※鍵盤に入りきらない音があります' : ''));
+  handSelect.querySelectorAll('button').forEach((b) => b.classList.toggle('on', b.dataset.hand === hand));
+  document.getElementById('songHint').textContent = songHintText();
+}
+
+function songHintText() {
+  const hand = settings.songHand;
+  if (hand === 'both') return 'お手本を聴く：鳴っている音の鍵盤が光ります';
+  const name = hand === 'right' ? '右手' : '左手';
+  const other = settings.songOther === 'play' ? '（もう片方の手は自動で鳴ります）' : '';
+  if (settings.songAdvance === 'wait') {
+    return `${name}を練習：光った鍵盤を弾くと進みます${other}`;
+  }
+  return `${name}を練習：光る鍵盤に合わせて弾いてください${other}`;
 }
 
 const songSelect = document.getElementById('songSelect');
 const tempoInput = document.getElementById('tempoInput');
 const playBtn = document.getElementById('playBtn');
+const handSelect = document.getElementById('handSelect');
 for (const song of SONGS) {
   const opt = document.createElement('option');
   opt.value = song.id;
@@ -1734,6 +1870,28 @@ songSelect.addEventListener('change', () => {
   showSong();
   songSelect.blur();
 });
+
+handSelect.addEventListener('click', (e) => {
+  const btn = e.target.closest('button');
+  if (!btn || btn.dataset.hand === settings.songHand) return;
+  stopPlayback();
+  settings.songHand = btn.dataset.hand;
+  saveSettings();
+  songOctave = null;
+  applyMode();   // 片手練習用の項目の表示と、鍵盤の位置を合わせ直す
+});
+
+for (const [id, prop] of [['songAdvanceSelect', 'songAdvance'], ['songOtherSelect', 'songOther']]) {
+  const sel = document.getElementById(id);
+  sel.value = settings[prop];
+  sel.addEventListener('change', () => {
+    stopPlayback();
+    settings[prop] = sel.value;
+    saveSettings();
+    showSong();
+    sel.blur();
+  });
+}
 
 playBtn.addEventListener('click', () => {
   if (player.playing) stopPlayback();
@@ -1790,13 +1948,34 @@ document.addEventListener('visibilitychange', () => {
 let resizeTimer = null;
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(() => {
-    if (settings.mode === 'nameQuiz') return;   // 音名当てクイズ中は鍵盤を出していない（戻ったときに作り直す）
-    const oct = calcOctaves();
-    if (oct !== octaves || calcRows(oct) !== rows) renderKeyboard();
-    else sizeKeyboard();
-  }, 150);
+  resizeTimer = setTimeout(refitKeyboard, 150);
 });
+
+// 使える広さが変わったとき：鍵盤の数・段数が変わるなら作り直し、変わらなければ高さだけ合わせる
+function refitKeyboard() {
+  if (settings.mode === 'nameQuiz') return;   // 音名当てクイズ中は鍵盤を出していない（戻ったときに作り直す）
+  const oct = calcOctaves();
+  if (oct !== octaves || calcRows(oct) !== rows) renderKeyboard();
+  else sizeKeyboard();
+}
+
+// ===== 設定のたたみ・開き =====
+// 最初は、大きい画面（iPadなど）では開き、スマホではたたむ。切り替えたら保存する
+const controlsEl = document.querySelector('.controls');
+const settingsToggle = document.getElementById('settingsToggle');
+function applyControlsOpen() {
+  const open = settings.controlsOpen ?? Math.min(window.innerWidth, window.innerHeight) >= 600;
+  controlsEl.classList.toggle('collapsed', !open);
+  settingsToggle.textContent = open ? '設定を閉じる ▲' : '設定 ▼';
+  settingsToggle.setAttribute('aria-expanded', String(open));
+}
+settingsToggle.addEventListener('click', () => {
+  settings.controlsOpen = controlsEl.classList.contains('collapsed');
+  saveSettings();
+  applyControlsOpen();
+  refitKeyboard();
+});
+applyControlsOpen();
 
 applyMode();
 </script>
