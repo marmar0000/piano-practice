@@ -768,7 +768,7 @@ function osc(type, freq, t) {
 //     各音の大きさを測り、ド5と同じ大きさに聞こえるように決めた値（dB）。docs/technical-notes.md に測り方を書いている
 const LOUDNESS_MIDI_START = 24;   // 表の最初の音（ド1）。そこから半オクターブ（6半音）ごと
 const LOUDNESS_TABLE = {
-  piano: [15, 11, 6.5, 5.5, 5.5, 5.5, 5, 1.5, 0, -1, -2, -2, -2.5],
+  piano: [15, 11.5, 7, 5.5, 5.5, 5.5, 5, 1.5, 0, -1, -2, -2, -2.5],
   epiano: [15, 15, 11.5, 8.5, 6.5, 6, 5.5, 1.5, 0, -0.5, -2, -2.5, -2.5],
   organ: [15, 15, 12, 9, 7, 5.5, 4.5, 1.5, 0, -1, -2.5, -3, -3.5],
   synth: [15, 12.5, 11, 9.5, 7.5, 6, 4.5, 1.5, 0, -1, -2.5, -2, -2.5],
@@ -830,7 +830,10 @@ const TONES = {
       const n = i + 1;
       const amp = PIANO_PARTIALS[i] + (PIANO_PARTIALS_LOW[i] - PIANO_PARTIALS[i]) * low;
       if (amp < 0.01) continue;
-      const f = freq * n * (1 + 0.0004 * n * n);
+      // 本物のピアノのように高い倍音ほど少し高くずらす（インハーモニシティ）のは第3倍音まで。
+      // 第4倍音より上は第3倍音と同じ割合でずらしてそろえ、ずらした位相が崩れないようにする
+      // （全部をずらすと位相がばらばらになって波形のピークが大きくなり、同じ大きさに聞こえる音でも音量の余裕を使ってしまう）
+      const f = freq * n * (1 + 0.0004 * Math.min(n, 3) ** 2);
       if (f > 12000) break;
       const o = osc('sine', f, t + (n > 1 ? partialDelay(n, count, f) : 0));
       const g = ctx.createGain();
