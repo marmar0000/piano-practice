@@ -94,8 +94,21 @@ displaySelect.value = settings.display;
 toneSelect.addEventListener('change', () => {
   settings.tone = toneSelect.value;
   saveSettings();
+  useSamplesFor(settings.tone);
+  updateToneStatus();
   toneSelect.blur();
 });
+
+// 録音のピアノを読み込んでいる間・読み込めなかったときに、音色の横に知らせる（その間は合成のピアノで鳴らす）
+function updateToneStatus() {
+  const el = document.getElementById('toneStatus');
+  const state = isSampleTone(settings.tone) ? sampleState(settings.tone) : 'none';
+  el.textContent = state === 'loading' ? '読み込み中…'
+    : state === 'error' ? '読み込めませんでした（合成のピアノで鳴らします）' : '';
+}
+// 録音のピアノを選んでいたら、開始画面のタップを待たずに読み込みを始める
+useSamplesFor(settings.tone);
+updateToneStatus();
 volumeInput.addEventListener('input', () => {
   settings.volume = Number(volumeInput.value);
   applyVolume();

@@ -16,7 +16,7 @@
   - 消音（マナーモード）だと音が鳴らないことがある → 画面で案内を出す
 
 ## 使う技術
-- 音を鳴らす：Web Audio API（音色は自前で合成）
+- 音を鳴らす：Web Audio API（音色は自前で合成。ピアノは録音の音も使う：sounds/）
 - マイク：getUserMedia＋音程検出（HTTPS必須）
 - MIDI：Web MIDI API（Android・PCのChromeのみ）
 
@@ -29,9 +29,10 @@
 ## ファイル構成
 - `index.html` … 画面の骨組み（HTML）と、版（`APP_VERSION`）・CSS・JSの読み込み。画面鍵盤ピアノ・音名当てクイズ・鍵盤の位置当てクイズ・曲の練習を「モード」で切り替える
 - `css/style.css` … 見た目
-- `js/` … アプリの動き。普通の `<script src>` で読み込む（`type="module"` は使わない。PCで index.html を直接開いたときと、`tools/loudness/` の道具が `file://` で読み込めるように）。ファイルどうしで関数・定数をそのまま使い合う。読み込む順番は index.html に書いた順
+- `sounds/` … 録音のピアノの音（MP3。出典・ライセンスは sounds/README.md）。fetch で読み込むので、file:// で開いたときは使えない（合成のピアノで鳴る）
+- `js/` … アプリの動き。普通の `<script src>` で読み込む（`type="module"` は使わない。PCで index.html を直接開いたとき（file://）でも動くように。ただし録音のピアノは読み込めない）。ファイルどうしで関数・定数をそのまま使い合う。読み込む順番は index.html に書いた順
   - `common.js` … 設定の保存・読み込み、音名
-  - `audio.js` … 音の再生・音色の合成・聴感補正
+  - `audio.js` … 音の再生・音色の合成・録音のピアノの読み込み・聴感補正
   - `staff.js` … 五線譜の描画（renderStaff）
   - `keyboard.js` … 画面鍵盤の描画・タッチ操作・PCキーボード操作
   - `quiz-name.js` … 音名当てクイズ
@@ -44,4 +45,5 @@
 - `docs/roadmap.md` … 作業の順番と進捗（作業の前に読み、終わったら更新する）
 - `docs/features.md` … 作りたい機能の候補一覧
 - `docs/technical-notes.md` … 技術メモ（制約の詳細、音の合成方法などの実装メモ）
-- `tools/loudness/` … 開発用：各音の聞こえる大きさを測り、聴感補正の表を計算する（Playwrightで実行。アプリの動作には使わない）
+- `tools/loudness/` … 開発用：各音の聞こえる大きさを測り、聴感補正の表を計算する（Playwrightで実行。アプリの動作には使わない）。check.js は録音のピアノを読み込むため、serve.js（小さなHTTPサーバー）経由でアプリを開く
+- `tools/piano-samples/` … 開発用：VCSL のWAVから sounds/ のMP3を作る（ffmpeg）

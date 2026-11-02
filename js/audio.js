@@ -132,17 +132,22 @@ function osc(type, freq, t) {
 //  4. 音色ごとの「聴感補正の表」で、音の高さに応じて音量を上げ下げする
 //     表は、耳の感度（ISO 226 の等ラウドネス曲線・60phon）と小さなスピーカーの特性で重みづけして
 //     各音の大きさを測り、ド5と同じ大きさに聞こえるように決めた値（dB）。docs/technical-notes.md に測り方を書いている
-const LOUDNESS_MIDI_START = 24;   // 表の最初の音（ド1）。そこから半オクターブ（6半音）ごと
+const LOUDNESS_MIDI_START = 24;   // 表の最初の音（ド1）。そこから半オクターブ（6半音）ごと。録音のピアノは録音ごと（全音＝2半音ごと）
 const LOUDNESS_TABLE = {
   piano: [15, 11.5, 7, 5.5, 5.5, 5.5, 5, 1.5, 0, -1, -2, -2, -2.5],
   epiano: [15, 15, 11.5, 8.5, 6.5, 6, 5.5, 1.5, 0, -0.5, -2, -2.5, -2.5],
   organ: [15, 15, 12, 9, 7, 5.5, 4.5, 1.5, 0, -1, -2.5, -3, -3.5],
   synth: [15, 12.5, 11, 9.5, 7.5, 6, 4.5, 1.5, 0, -1, -2.5, -2, -2.5],
+  sample2: [9.5, 10, 8.5, 9, 7.5, 2.5, 2, 8, 10, 5.5, 11.5, 5, 3.5, 6.5, 6.5, 5.5, 1.5, 12.5, 6, 7, -2, 2, -1, -2.5, 0, 2.5, -4, -1, 1, -3.5, 2.5, 7.5, 0.5, 5, 7, 7.5, 5],
+  sample3: [2, 2.5, 3, 0, 2.5, -2, -1, 1, 0, 2, 6, 2, 1, 4, 1.5, 2.5, 0.5, 7, 1, 5, -1, 0.5, -0.5, -3, 0, 0, -1.5, 1.5, -2.5, -1.5, 2.5, 4.5, 0, 3, 11, 9, 7],
+  sample4: [1, 2, 2, -1.5, 0.5, -2.5, -2, 0, -1, 0.5, 3.5, 0.5, 0, 2, 0, 0.5, 1, 5, 1, 3, -1.5, 0, -1.5, -3, 0, -1, -1.5, 1, -2, -2, 2, 4, -0.5, 3, 12.5, 9, 7],
 };
 const freqToMidi = (freq) => 69 + 12 * Math.log2(freq / 440);
+// 録音のピアノは、録音ごとに大きさのばらつきがあるので、録音ごとに値を持つ
+const loudnessStep = (tone) => (tone in SAMPLE_LAYERS ? 2 : 6);
 function loudnessGain(tone, freq) {
   const table = LOUDNESS_TABLE[tone];
-  const x = Math.min(table.length - 1, Math.max(0, (freqToMidi(freq) - LOUDNESS_MIDI_START) / 6));
+  const x = Math.min(table.length - 1, Math.max(0, (freqToMidi(freq) - LOUDNESS_MIDI_START) / loudnessStep(tone)));
   const i = Math.min(table.length - 2, Math.floor(x));
   const db = table[i] + (table[i + 1] - table[i]) * (x - i);
   return Math.pow(10, db / 20);
@@ -278,6 +283,82 @@ const TONES = {
     return { out, oscs: [o1, o2], release: 0.12, maxDur: Infinity };
   },
 };
+
+// ===== 録音のピアノ =====
+// VCSL の Steinway B（CC0）を、ド1〜ド7の全音ごとに録音した音（sounds/README.md）。間の音は再生の速さを1半音分変えて作る
+// 強さ（やわらかい・ふつう・明るい）ごとに別の音色にしている。読み込めるまでは合成のピアノで鳴らす
+const SAMPLE_LAYERS = { sample2: 'vl2', sample3: 'vl3', sample4: 'vl4' };   // 音色 → 録音の強さ
+const SAMPLE_MIDI_LOW = 24;    // ド1
+const SAMPLE_MIDI_HIGH = 96;   // ド7
+const SAMPLE_GAIN = 3.2;       // 合成のピアノと同じくらいの大きさにする（出力の流れ全体を通して、ド3〜ド6で測って決めた）
+const SAMPLE_RELEASE = 0.1;    // 離したときに消える速さ（秒）
+const sampleSets = {};         // 録音の強さ → { state: 'loading' / 'ready' / 'error', notes: Map（midi → { buffer, offset }） }
+const isSampleTone = (tone) => tone in SAMPLE_LAYERS;
+
+// 録音の強さ1つ分（37音）を読み込む。終わったら（読み込めなかったときも）表示を直す
+// 画面のタップの前でも読み込めるよう、展開には OfflineAudioContext を使う（展開した音は、どの AudioContext でも使える）
+function loadSamples(tone) {
+  const layer = SAMPLE_LAYERS[tone];
+  const old = sampleSets[layer];
+  if (old && old.state !== 'error') return old.promise;
+  const set = { state: 'loading', notes: new Map() };
+  sampleSets[layer] = set;
+  const decoder = new OfflineAudioContext(1, 1, 44100);
+  const jobs = [];
+  for (let m = SAMPLE_MIDI_LOW; m <= SAMPLE_MIDI_HIGH; m += 2) {
+    jobs.push(fetch(`sounds/piano-${layer}/${m}.mp3`)
+      .then((res) => { if (!res.ok) throw new Error(res.status); return res.arrayBuffer(); })
+      .then((data) => decoder.decodeAudioData(data))
+      .then((buffer) => set.notes.set(m, { buffer, offset: soundStart(buffer) })));
+  }
+  set.promise = Promise.all(jobs).then(
+    () => { set.state = 'ready'; },
+    (e) => { set.state = 'error'; console.warn('録音のピアノを読み込めませんでした', e); },
+  ).then(() => { if (typeof updateToneStatus === 'function') updateToneStatus(); });
+  return set.promise;
+}
+
+// いま使う録音の強さだけを残し、ほかは捨てる（展開した音は1つの強さで約40MBのメモリを使うので）
+function useSamplesFor(tone) {
+  for (const [t, layer] of Object.entries(SAMPLE_LAYERS)) {
+    if (t !== tone && sampleSets[layer]) delete sampleSets[layer];
+  }
+  if (isSampleTone(tone)) loadSamples(tone);
+}
+
+// MP3 は先頭に短い無音が入ることがあるので、最初に音が始まる位置（秒）を探す
+function soundStart(buffer) {
+  const d = buffer.getChannelData(0);
+  for (let i = 0; i < d.length; i++) {
+    if (Math.abs(d[i]) > 0.001) return Math.max(0, i - 16) / buffer.sampleRate;
+  }
+  return 0;
+}
+
+function sampleState(tone) {
+  const set = sampleSets[SAMPLE_LAYERS[tone]];
+  return set ? set.state : 'none';
+}
+
+function sampleVoice(tone, freq, t) {
+  const set = sampleSets[SAMPLE_LAYERS[tone]];
+  if (!set || set.state !== 'ready') return TONES.piano(freq, t);
+  const midi = freqToMidi(freq);
+  // いちばん近い録音（同じ近さなら低いほうを上げる）
+  const base = Math.min(SAMPLE_MIDI_HIGH, Math.max(SAMPLE_MIDI_LOW, 2 * Math.round((midi - 0.01) / 2)));
+  const note = set.notes.get(base);
+  const out = ctx.createGain();
+  const bus = voiceBus(tone, freq, out);
+  const src = ctx.createBufferSource();
+  src.buffer = note.buffer;
+  src.playbackRate.value = Math.pow(2, (midi - base) / 12);
+  const g = ctx.createGain();
+  g.gain.value = SAMPLE_GAIN;
+  src.connect(g).connect(bus);
+  src.start(t, note.offset);
+  return { out, oscs: [src], release: SAMPLE_RELEASE, maxDur: Infinity };
+}
+for (const tone of Object.keys(SAMPLE_LAYERS)) TONES[tone] = (freq, t) => sampleVoice(tone, freq, t);
 
 const voices = new Map();   // midi -> 鳴っている音
 
