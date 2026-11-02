@@ -7,7 +7,7 @@
 <meta name="theme-color" content="#1f2430">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>ピアノ練習</title>
-<link rel="stylesheet" href="css/style.css?v=2026-11-02c">
+<link rel="stylesheet" href="css/style.css?v=2026-11-02d">
 </head>
 <body>
 
@@ -95,8 +95,15 @@
     <span class="octave-label" id="octLabel"></span>
     <button id="octUp" aria-label="オクターブを上げる">▶</button>
   </div>
-  <div class="group" data-modes="piano" data-main>
+  <div class="group" data-modes="piano" data-main data-pedal="toggle">
     <button id="sustainBtn">サスティン：オフ</button>
+  </div>
+  <div class="group" data-modes="piano" data-large-only>
+    <span class="label">ペダル</span>
+    <select id="pedalSelect">
+      <option value="hold">押している間（ペダル欄）</option>
+      <option value="toggle">切り替え（ボタン）</option>
+    </select>
   </div>
   <div class="group" data-modes="piano">
     <span class="label">表示</span>
@@ -210,6 +217,8 @@
 
 <div class="keyboard-wrap" data-modes="piano keyQuiz song">
   <div class="keyboard" id="keyboard"></div>
+  <!-- 押さえている間だけサスティンが効くペダル欄（大きい画面で、設定「ペダル」が「押している間」のとき） -->
+  <div class="pedal" id="pedal" role="button" aria-pressed="false" data-modes="piano" data-pedal="hold">ペダル（押さえている間だけ効く）</div>
 </div>
 
 <div class="quiz" id="quiz" data-modes="nameQuiz">
@@ -221,17 +230,17 @@
 
 <!-- 版：開始画面に出す。どのファイルを変えたときも、この版とすぐ下の ?v= をすべて同じ文字列に更新する（index.html の中をまとめて置き換える）
      GitHub Pages はファイルをしばらくブラウザに残すので、?v= を変えて、古いファイルと新しいファイルが混ざらないようにする -->
-<script>const APP_VERSION = '2026-11-02c';</script>
+<script>const APP_VERSION = '2026-11-02d';</script>
 <!-- 読み込む順番に意味がある：共通の部品 → 各モード → 部品をつなぐ app.js（最後に画面を作る） -->
-<script src="js/common.js?v=2026-11-02c"></script>
-<script src="js/audio.js?v=2026-11-02c"></script>
-<script src="js/staff.js?v=2026-11-02c"></script>
-<script src="js/keyboard.js?v=2026-11-02c"></script>
-<script src="js/quiz-name.js?v=2026-11-02c"></script>
-<script src="js/quiz-key.js?v=2026-11-02c"></script>
-<script src="js/songs.js?v=2026-11-02c"></script>
-<script src="js/song-play.js?v=2026-11-02c"></script>
-<script src="js/song-judge.js?v=2026-11-02c"></script>
-<script src="js/app.js?v=2026-11-02c"></script>
+<script src="js/common.js?v=2026-11-02d"></script>
+<script src="js/audio.js?v=2026-11-02d"></script>
+<script src="js/staff.js?v=2026-11-02d"></script>
+<script src="js/keyboard.js?v=2026-11-02d"></script>
+<script src="js/quiz-name.js?v=2026-11-02d"></script>
+<script src="js/quiz-key.js?v=2026-11-02d"></script>
+<script src="js/songs.js?v=2026-11-02d"></script>
+<script src="js/song-play.js?v=2026-11-02d"></script>
+<script src="js/song-judge.js?v=2026-11-02d"></script>
+<script src="js/app.js?v=2026-11-02d"></script>
 </body>
 </html>

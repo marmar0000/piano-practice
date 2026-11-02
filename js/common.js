@@ -26,6 +26,7 @@ const settings = Object.assign({
   songLoop: false,       // 区間をくり返すか
   timingOffset: 0,       // タイミング調整：この端末で、押してから判定に届くまでの遅れ（秒）。判定のときに差し引く
   controlsOpen: null,    // 設定を開いているか（null なら画面の大きさで決める）
+  pedalMode: 'hold',     // 大きい画面のペダル：hold（押している間だけ効くペダル欄）/ toggle（押すたびに切り替わるボタン）。スマホは常にボタン
 }, loadJSON(STORAGE_KEY));
 
 function loadJSON(key) {
@@ -36,6 +37,9 @@ function saveJSON(key, value) {
   try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) {}
 }
 function saveSettings() { saveJSON(STORAGE_KEY, settings); }
+
+// 大きい画面（iPadなど）かどうか：画面の短い辺が600px以上。設定のたたみ・開きの最初の状態と、ペダル欄を出すかに使う
+const isLargeScreen = () => Math.min(window.innerWidth, window.innerHeight) >= 600;
 
 // ===== 音名 =====
 const NAMES_DOREMI = ['ド', 'ド♯', 'レ', 'レ♯', 'ミ', 'ファ', 'ファ♯', 'ソ', 'ソ♯', 'ラ', 'ラ♯', 'シ'];

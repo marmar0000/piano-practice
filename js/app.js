@@ -2,9 +2,11 @@
 // 部品をつなぐ部分：押している鍵盤の管理・表示エリア・操作パネル・モード切り替え・開始画面・画面全体の操作・最初の起動
 // いちばん最後に読み込む（最後の applyMode() で画面を作る）
 
-// ===== 押している鍵盤・サスティンの管理 =====
+// ===== 押している鍵盤・サスティン（ペダル）の管理 =====
 const pressCount = new Map();   // midi -> 押している指・キーの数
 let sustain = false;
+// 押さえている間だけサスティンを効かせているもの：ペダル欄に触れている指（pointerId）・スペースキー（'space'）
+const sustainHolds = new Set();
 
 function noteOn(midi) {
   const n = (pressCount.get(midi) || 0) + 1;
@@ -31,11 +33,45 @@ function setSustain(on) {
   const btn = document.getElementById('sustainBtn');
   btn.classList.toggle('on', on);
   btn.textContent = 'サスティン：' + (on ? 'オン' : 'オフ');
+  pedalEl.classList.toggle('on', on);
+  pedalEl.setAttribute('aria-pressed', String(on));
+  pedalEl.textContent = on ? 'ペダル：踏んでいます' : 'ペダル（押さえている間だけ効く）';
   if (!on) {
+    sustainHolds.clear();   // モードの切り替えなどで切ったときは、押さえていた指・キーも離した扱いにする
     for (const midi of [...voices.keys()]) {
       if (!pressCount.has(midi)) stopVoice(midi);
     }
   }
+}
+
+// 押さえている間だけ効かせる（ペダル欄・スペースキー）。どれか1つでも押さえていれば効き、全部離したら切る
+function holdSustain(source, on) {
+  if (on) { sustainHolds.add(source); setSustain(true); return; }
+  if (!sustainHolds.delete(source)) return;
+  if (sustainHolds.size === 0) setSustain(false);
+}
+
+// ペダル欄：指で押さえている間だけサスティン。鍵盤とは別の場所なので、触れた指で鍵盤は鳴らない
+// 指がペダル欄の外に出ても、離すまでは踏んでいる扱い（setPointerCapture）。ほかの指で鍵盤を弾ける
+const pedalEl = document.getElementById('pedal');
+pedalEl.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  pedalEl.setPointerCapture(e.pointerId);
+  holdSustain(e.pointerId, true);
+});
+const pedalUp = (e) => holdSustain(e.pointerId, false);
+pedalEl.addEventListener('pointerup', pedalUp);
+pedalEl.addEventListener('pointercancel', pedalUp);
+pedalEl.addEventListener('lostpointercapture', pedalUp);
+pedalEl.addEventListener('contextmenu', (e) => e.preventDefault());
+
+// 大きい画面かどうかが変わったら（PCでウィンドウの大きさを変えたときなど）、ペダル欄・ボタンを出し直す
+let largeScreen = isLargeScreen();
+function updatePedalForScreen() {
+  if (isLargeScreen() === largeScreen) return;
+  largeScreen = !largeScreen;
+  setSustain(false);
+  updateVisibility();
 }
 
 function releaseAll() {
@@ -83,6 +119,7 @@ const labelSelect = document.getElementById('labelSelect');
 const sizeSelect = document.getElementById('sizeSelect');
 const rowsSelect = document.getElementById('rowsSelect');
 const displaySelect = document.getElementById('displaySelect');
+const pedalSelect = document.getElementById('pedalSelect');
 
 // 外した音色を選んでいたときは、近い音色に置きかえる（録音・やわらかい → 録音・ふつう）
 if (!(settings.tone in TONES)) {
@@ -95,6 +132,7 @@ labelSelect.value = settings.labels;
 sizeSelect.value = settings.size;
 rowsSelect.value = settings.rows;
 displaySelect.value = settings.display;
+pedalSelect.value = settings.pedalMode;
 
 toneSelect.addEventListener('change', () => {
   settings.tone = toneSelect.value;
@@ -146,6 +184,15 @@ rowsSelect.addEventListener('change', () => {
 document.getElementById('octDown').addEventListener('click', () => shiftOctave(-1));
 document.getElementById('octUp').addEventListener('click', () => shiftOctave(1));
 document.getElementById('sustainBtn').addEventListener('click', () => setSustain(!sustain));
+// ペダルの種類を変えたら、サスティンは切っておく（ボタンでオンのままペダル欄に変わる・その逆を防ぐ）
+pedalSelect.addEventListener('change', () => {
+  settings.pedalMode = pedalSelect.value;
+  saveSettings();
+  setSustain(false);
+  updateVisibility();
+  refitKeyboard();   // ペダル欄の分だけ、鍵盤に使える高さが変わる
+  pedalSelect.blur();
+});
 
 // ===== モード切り替え =====
 const modeSelect = document.getElementById('modeSelect');
@@ -158,13 +205,19 @@ modeSelect.addEventListener('change', () => {
 });
 
 // data-modes に書いたモードのときだけ出す。片手練習・判定つきのときだけ出す項目もある
+// ペダル：大きい画面だけの項目（data-large-only）。data-pedal="hold" はペダル欄（大きい画面で「押している間」のとき）、
+// data-pedal="toggle" は切り替え式のボタン（スマホ、または大きい画面で「切り替え」のとき）
 function updateVisibility() {
   const mode = settings.mode;
   const judge = settings.songHand !== 'both' && settings.songAdvance === 'judge';
+  const holdPedal = largeScreen && settings.pedalMode === 'hold';
   document.querySelectorAll('[data-modes]').forEach((el) => {
     el.hidden = !el.dataset.modes.split(' ').includes(mode) ||
       ('practiceOnly' in el.dataset && settings.songHand === 'both') ||
-      ('judgeOnly' in el.dataset && !judge);
+      ('judgeOnly' in el.dataset && !judge) ||
+      ('largeOnly' in el.dataset && !largeScreen) ||
+      (el.dataset.pedal === 'hold' && !holdPedal) ||
+      (el.dataset.pedal === 'toggle' && holdPedal);
   });
 }
 
@@ -216,7 +269,7 @@ document.addEventListener('touchend', (e) => {
   lastTouchEnd = now;
   if (!quick || e.touches.length > 0) return;
   const t = e.target;
-  if (!t.closest || t.closest('.keyboard, select, input')) return;   // 鍵盤は自前で処理、選択欄・スライダーはそのまま
+  if (!t.closest || t.closest('.keyboard, .pedal, select, input')) return;   // 鍵盤・ペダル欄は自前で処理、選択欄・スライダーはそのまま
   e.preventDefault();
   const target = t.closest('button, .overlay');
   if (target) target.click();
@@ -241,7 +294,7 @@ document.addEventListener('visibilitychange', () => {
 const controlsEl = document.querySelector('.controls');
 const settingsToggle = document.getElementById('settingsToggle');
 function applyControlsOpen() {
-  const open = settings.controlsOpen ?? Math.min(window.innerWidth, window.innerHeight) >= 600;
+  const open = settings.controlsOpen ?? isLargeScreen();
   controlsEl.classList.toggle('collapsed', !open);
   settingsToggle.textContent = open ? '設定を閉じる ▲' : '設定 ▼';
   settingsToggle.setAttribute('aria-expanded', String(open));

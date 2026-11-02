@@ -22,6 +22,12 @@ function displayMin() {
 }
 let songOctave = null;   // 曲の練習で、オクターブボタンで動かした鍵盤の位置（null なら曲に合わせて自動）
 
+// ペダル欄の高さ（出していないときは0）。鍵盤の高さを決めるときに差し引く
+function pedalHeight() {
+  const el = document.getElementById('pedal');
+  return el.hidden ? 0 : el.offsetHeight + 8;   // 8：鍵盤との間隔（css の .pedal の margin-top）
+}
+
 function calcOctaves() {
   const width = keyboardEl.clientWidth || window.innerWidth;
   const minW = KEY_MIN_WIDTH[settings.size];
@@ -32,7 +38,7 @@ function calcRows(oct) {
   if (settings.rows !== 'auto') return Number(settings.rows);
   // 縦向きで、2段にしても鍵盤が十分な高さを保てるときだけ2段にする
   const whiteW = (keyboardEl.clientWidth || window.innerWidth) / (oct * 7 + 1);
-  const available = window.innerHeight - document.querySelector('.controls').offsetHeight - displayMin();
+  const available = window.innerHeight - document.querySelector('.controls').offsetHeight - displayMin() - pedalHeight();
   const portrait = window.innerHeight > window.innerWidth * 1.1;
   return portrait && available / 2 - 30 >= Math.min(whiteW * 4.5, 220) ? 2 : 1;
 }
@@ -126,7 +132,7 @@ function sizeKeyboard() {
   const whiteW = keyboardEl.clientWidth / (octaves * 7 + 1);
   const controlsH = document.querySelector('.controls').offsetHeight;
   const extra = rows === 2 ? 50 : 0;   // 段の見出しと間隔
-  const available = (window.innerHeight - controlsH - displayMin() - extra) / rows;
+  const available = (window.innerHeight - controlsH - displayMin() - extra - pedalHeight()) / rows;
   const h = Math.max(100, Math.min(available, whiteW * KEY_RATIO, KEY_MAX_HEIGHT));
   keyboardEl.querySelectorAll('.kb-row').forEach((row) => { row.style.height = h + 'px'; });
 }
@@ -188,7 +194,7 @@ document.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT') return;
   if (calib.open) { calibKeydown(e); return; }
   if (settings.mode === 'nameQuiz') { quizKeydown(e); return; }
-  if (e.code === 'Space') { e.preventDefault(); if (settings.mode === 'piano') setSustain(true); return; }
+  if (e.code === 'Space') { e.preventDefault(); if (settings.mode === 'piano') holdSustain('space', true); return; }
   if (e.code === 'KeyZ') { shiftOctave(-1); return; }
   if (e.code === 'KeyX') { shiftOctave(1); return; }
   if (!(e.code in KEY_MAP) || keyNotes.has(e.code)) return;
@@ -201,7 +207,7 @@ document.addEventListener('keydown', (e) => {
 });
 
 document.addEventListener('keyup', (e) => {
-  if (e.code === 'Space') { setSustain(false); return; }
+  if (e.code === 'Space') { holdSustain('space', false); return; }
   if (!keyNotes.has(e.code)) return;
   const midi = keyNotes.get(e.code);
   keyNotes.delete(e.code);
@@ -213,7 +219,7 @@ document.addEventListener('keyup', (e) => {
 let resizeTimer = null;
 window.addEventListener('resize', () => {
   clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(refitKeyboard, 150);
+  resizeTimer = setTimeout(() => { updatePedalForScreen(); refitKeyboard(); }, 150);
 });
 
 // 使える広さが変わったとき：鍵盤の数・段数が変わるなら作り直し、変わらなければ高さだけ合わせる

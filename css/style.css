@@ -183,6 +183,26 @@ input[type="range"] { width: 110px; accent-color: var(--accent); }
   background: var(--accent);
 }
 
+/* ペダル欄（押さえている間だけサスティン）：鍵盤の下に横長に出す。指の操作は自前で処理する */
+.pedal {
+  margin-top: 8px;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 10px;
+  background: #3a4256;
+  border: 1px solid #4a5370;
+  color: var(--sub);
+  font-size: 15px;
+  touch-action: none;
+}
+.pedal.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
 /* 開始画面 */
 .overlay {
   position: fixed;
