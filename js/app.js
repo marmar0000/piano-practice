@@ -84,6 +84,11 @@ const sizeSelect = document.getElementById('sizeSelect');
 const rowsSelect = document.getElementById('rowsSelect');
 const displaySelect = document.getElementById('displaySelect');
 
+// 外した音色を選んでいたときは、近い音色に置きかえる（録音・やわらかい → 録音・ふつう）
+if (!(settings.tone in TONES)) {
+  settings.tone = settings.tone === 'sample2' ? 'sample3' : 'piano';
+  saveSettings();
+}
 toneSelect.value = settings.tone;
 volumeInput.value = settings.volume;
 labelSelect.value = settings.labels;

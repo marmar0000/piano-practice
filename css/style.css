@@ -75,6 +75,9 @@ button:active { background: #4a5370; }
 input[type="range"] { width: 110px; accent-color: var(--accent); }
 /* 設定をたたんだときは、よく使う項目（data-main）だけ出す */
 .controls.collapsed .group:not([data-main]) { display: none; }
+/* 音色の欄：狭い画面では、読み込み中などの知らせを次の行に出す */
+.tone-group { flex-wrap: wrap; min-width: 0; }
+.tone-group select { max-width: 100%; }
 .tone-status { font-size: 12px; color: var(--sub); }
 .tone-status:empty { display: none; }
 .settings-toggle { color: var(--sub); }
